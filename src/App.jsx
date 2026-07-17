@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronRight, Clock, CheckCircle, Shield, Mail } from 'lucide-react';
 import usmcLogo from './usmc.png';
 
-const API = 'http://localhost:3001/api';
+const API = `${import.meta.env.VITE_API_URL}/api`;
 
 const api = async (ep, method, body, tok) => {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
