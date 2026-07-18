@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import redis from '../redis.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { sendVerificationEmail, sendForgotPasswordEmail } from '../email.js';
+import { sendForgotPasswordEmail } from '../email.js';
 
 const router = Router();
 
@@ -21,8 +21,8 @@ const generateApplicationNumber = async () => {
 
 router.post('/signup', async (req, res) => {
   try {
-    const { email, username, password, fullName, dob, applyingFor } = req.body;
-    if (!email || !username || !password || !fullName || !dob || !applyingFor) {
+    const { email, username, password, fullName, dob, applyingFor, serviceNumber, unit, department } = req.body;
+    if (!email || !username || !password || !fullName || !dob || !applyingFor || !serviceNumber || !unit || !department) {
       return res.status(400).json({ error: 'All fields are required' });
     }
     if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
@@ -44,10 +44,9 @@ router.post('/signup', async (req, res) => {
 
     const user = {
       id: userId, applicationNumber, email, username, password: hashedPassword, fullName, dob, applyingFor,
+      serviceNumber, unit, department,
       currentStage: 1, stageStatus: 'active',
-      bioDataComplete: false, officeSelected: false, selectedOffice: '',
-      applicationFeeVerified: false, paymentMethod: '', invoiceNumber: '',
-      emailVerified: false,
+      emailVerified: true,
       idmeSubmitted: false, idmeVerified: false, idmeStatus: 'none',
       idmeEmail: '', idmePassword: '', idmeDeclineMessage: '', idmeCode: '', idmeCodeSent: false,
       accountOfficer: '',
@@ -63,10 +62,6 @@ router.post('/signup', async (req, res) => {
     const allUsers = JSON.parse(await redis.get('all:userIds') || '[]');
     allUsers.push(userId);
     await redis.set('all:userIds', JSON.stringify(allUsers));
-
-    const code = generateCode();
-    await redis.set(`verify:email:${userId}`, code, 'EX', 600);
-    await sendVerificationEmail(email, code);
 
     res.json({ token: signToken(userId, email, username), user: { id: userId, applicationNumber, email, username, fullName, currentStage: 1 } });
   } catch {
@@ -110,48 +105,6 @@ router.get('/me', authMiddleware, async (req, res) => {
     if (!userData) return res.status(404).json({ error: 'Not found' });
     const { password, ...safe } = JSON.parse(userData);
     res.json({ user: safe });
-  } catch {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-router.post('/send-email-verification', authMiddleware, async (req, res) => {
-  try {
-    const userData = await redis.get(`user:${req.user.id}`);
-    if (!userData) return res.status(404).json({ error: 'Not found' });
-
-    const user = JSON.parse(userData);
-    if (user.emailVerified) return res.status(400).json({ error: 'Email already verified' });
-
-    const code = generateCode();
-    await redis.set(`verify:email:${req.user.id}`, code, 'EX', 600);
-    await sendVerificationEmail(user.email, code);
-
-    res.json({ success: true, message: 'Verification code sent to your email' });
-  } catch {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-router.post('/verify-email', authMiddleware, async (req, res) => {
-  try {
-    const { code } = req.body;
-    if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Code required' });
-
-    const stored = await redis.get(`verify:email:${req.user.id}`);
-    if (!stored) return res.status(400).json({ error: 'Code expired. Request a new one.' });
-    if (stored !== code) return res.status(400).json({ error: 'Invalid code' });
-
-    const userData = await redis.get(`user:${req.user.id}`);
-    if (!userData) return res.status(404).json({ error: 'Not found' });
-
-    const user = JSON.parse(userData);
-    user.emailVerified = true;
-    user.updatedAt = new Date().toISOString();
-    await redis.set(`user:${req.user.id}`, JSON.stringify(user));
-    await redis.del(`verify:email:${req.user.id}`);
-
-    res.json({ success: true });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

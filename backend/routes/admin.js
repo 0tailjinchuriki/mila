@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendVerificationEmail } from '../email.js';
+import { sendAdminEmail } from '../email.js';
 
 const router = Router();
 
@@ -48,8 +48,8 @@ router.get('/dashboard', adminMiddleware, async (req, res) => {
       if (u) {
         users.push({
           id: u.id, applicationNumber: u.applicationNumber, fullName: u.fullName, email: u.email, username: u.username,
-          applyingFor: u.applyingFor, currentStage: u.currentStage, stageStatus: u.stageStatus,
-          applicationFeeVerified: u.applicationFeeVerified, paymentMethod: u.paymentMethod,
+          applyingFor: u.applyingFor, serviceNumber: u.serviceNumber, unit: u.unit, department: u.department,
+          currentStage: u.currentStage, stageStatus: u.stageStatus,
           idmeVerified: u.idmeVerified, idmeSubmitted: u.idmeSubmitted,
           idmeStatus: u.idmeStatus, idmeDeclineMessage: u.idmeDeclineMessage,
           idmeCodeSent: u.idmeCodeSent, idmeCode: u.idmeCode,
@@ -59,18 +59,17 @@ router.get('/dashboard', adminMiddleware, async (req, res) => {
         });
       }
     }
-    const pendingPayments = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
     const pendingIdme = JSON.parse(await redis.get('admin:pendingIdme') || '[]');
     const pendingIdmeCodes = JSON.parse(await redis.get('admin:pendingIdmeCodes') || '[]');
     const pendingClearance = JSON.parse(await redis.get('admin:pendingClearance') || '[]');
 
     res.json({
       stats: {
-        totalUsers: users.length, pendingPayments: pendingPayments.length,
+        totalUsers: users.length,
         pendingIdme: pendingIdme.length, pendingIdmeCodes: pendingIdmeCodes.length,
         pendingClearance: pendingClearance.length, approved: users.filter(u => u.finalApproved).length
       },
-      users, pendingPayments, pendingIdme, pendingIdmeCodes, pendingClearance
+      users, pendingIdme, pendingIdmeCodes, pendingClearance
     });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -81,28 +80,6 @@ router.get('/users/:userId', adminMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not found' });
     const { password, ...safe } = user;
     res.json({ user: safe });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/approve-payment/:userId', adminMiddleware, async (req, res) => {
-  try {
-    const { approved, officerName } = req.body;
-    const user = await getUser(req.params.userId);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    user.applicationFeeVerified = !!approved;
-    user.accountOfficer = officerName || 'Assigned Officer';
-    user.currentStage = approved ? 4 : 3;
-    user.stageStatus = approved ? 'idme_pending' : 'payment_rejected';
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
-
-    let queue = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
-    queue = queue.filter(p => p.userId !== req.params.userId);
-    await redis.set('admin:pendingPayments', JSON.stringify(queue));
-
-    res.json({ success: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -138,14 +115,14 @@ router.post('/idme-approve-code/:userId', adminMiddleware, async (req, res) => {
     if (approved) {
       user.idmeVerified = true;
       user.idmeStatus = 'verified';
-      user.currentStage = 6;
+      user.currentStage = 2;
       user.stageStatus = 'clearance_pending';
-      let queue = JSON.parse(await redis.get('admin:pendingIdme') || '[]');
-      queue = queue.filter(p => p.userId !== req.params.userId);
-      await redis.set('admin:pendingIdme', JSON.stringify(queue));
       let codeQueue = JSON.parse(await redis.get('admin:pendingIdmeCodes') || '[]');
       codeQueue = codeQueue.filter(p => p.userId !== req.params.userId);
       await redis.set('admin:pendingIdmeCodes', JSON.stringify(codeQueue));
+      let queue = JSON.parse(await redis.get('admin:pendingIdme') || '[]');
+      queue = queue.filter(p => p.userId !== req.params.userId);
+      await redis.set('admin:pendingIdme', JSON.stringify(queue));
     } else {
       user.idmeStatus = 'declined';
       user.idmeDeclineMessage = 'Verification code rejected';
@@ -164,7 +141,6 @@ router.post('/approve-clearance/:userId', adminMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not found' });
 
     user.clearancePaymentVerified = !!approved;
-    user.currentStage = approved ? 7 : 6;
     user.stageStatus = approved ? 'awaiting_final_approval' : 'clearance_rejected';
     user.updatedAt = new Date().toISOString();
 
@@ -185,7 +161,7 @@ router.post('/approve-final/:userId', adminMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not found' });
 
     user.finalApproved = !!approved;
-    user.currentStage = 8;
+    user.currentStage = 4;
     user.stageStatus = approved ? 'approved' : 'rejected';
     user.updatedAt = new Date().toISOString();
 
@@ -194,18 +170,16 @@ router.post('/approve-final/:userId', adminMiddleware, async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
-
-router.post('/send-email-verification/:userId', adminMiddleware, async (req, res) => {
+router.post('/send-email/:userId', adminMiddleware, async (req, res) => {
   try {
-    const user = await getUser(req.params.userId);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-    if (user.emailVerified) return res.status(400).json({ error: 'Email already verified' });
+    const { message } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
 
-    const code = generateCode();
-    await redis.set(`verify:email:${req.params.userId}`, code, 'EX', 600);
-    await sendVerificationEmail(user.email, code);
-    res.json({ success: true, message: 'Verification code sent to email' });
+    const user = await getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await sendAdminEmail(user.email, user.fullName, message.trim());
+    res.json({ success: true, message: 'Email sent successfully' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 

