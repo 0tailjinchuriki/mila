@@ -63,6 +63,7 @@ export default function App() {
   const [dash, setDash] = useState(null);
 
   const [signup, setSignup] = useState({ applyingFor:'self', fullName:'', serviceNumber:'', unit:'', department:'', email:'', username:'', password:'', confirmPassword:'', dob:'' });
+  const [bio, setBio] = useState({ address:'', city:'', state:'', zipCode:'' });
   const [agreed, setAgreed] = useState(false);
   const [loginForm, setLoginForm] = useState({ login:'', password:'' });
   const [idmeCreds, setIdmeCreds] = useState({ idmeEmail:'', idmePassword:'' });
@@ -117,7 +118,7 @@ export default function App() {
     if (!agreed) { setError('You must agree to the confidentiality terms before registering'); return; }
     setLoading(true);
     try {
-      const d = await api('/auth/signup', 'POST', signup);
+      const d = await api('/auth/signup', 'POST', { ...signup, ...bio });
       localStorage.setItem('token', d.token); setToken(d.token); setUser(d.user); setStep(100);
     } catch(err) { setError(err.message); }
     setLoading(false);
@@ -417,6 +418,24 @@ export default function App() {
 
         {step === 3 && (
           <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
+            <h2 className="section-title">Bio Data</h2>
+            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Provide your personal information.</p>
+            {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
+            <div className="form-group"><label className="form-label">Address</label><input type="text" className="form-input" placeholder="Street address" value={bio.address} onChange={e => setBio({ ...bio, address: e.target.value })} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+              <div className="form-group"><label className="form-label">City</label><input type="text" className="form-input" placeholder="City" value={bio.city} onChange={e => setBio({ ...bio, city: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label">State</label><input type="text" className="form-input" placeholder="State" value={bio.state} onChange={e => setBio({ ...bio, state: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label">Zip Code</label><input type="text" className="form-input" placeholder="Zip" value={bio.zipCode} onChange={e => setBio({ ...bio, zipCode: e.target.value })} /></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
+              <button onClick={() => setStep(2)} className="btn btn-secondary">Back</button>
+              <button onClick={() => setStep(4)} className="btn btn-primary">Continue <ChevronRight size={20} /></button>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
             <h2 className="section-title">Create Account</h2>
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Enter your account and service member details.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
@@ -442,7 +461,7 @@ export default function App() {
             <div className="form-group"><label className="form-label">Password</label><input type="password" className="form-input" placeholder="Min 8 characters" value={signup.password} onChange={e => setSignup({ ...signup, password: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Confirm Password</label><input type="password" className="form-input" placeholder="Re-enter password" value={signup.confirmPassword} onChange={e => setSignup({ ...signup, confirmPassword: e.target.value })} /></div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-              <button onClick={() => setStep(2)} className="btn btn-secondary">Back</button>
+              <button onClick={() => setStep(3)} className="btn btn-secondary">Back</button>
               <button onClick={handleSignup} className="btn btn-primary" disabled={loading || !signup.fullName || !signup.serviceNumber || !signup.unit || !signup.department || !signup.email || !signup.username || !signup.password}>{loading ? 'Creating...' : 'Create Account'} <ChevronRight size={20} /></button>
             </div>
           </div>
