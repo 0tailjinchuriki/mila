@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3001;
 
 app.use(helmet());
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3002'],
+  origin: ['http://localhost:5173', 'http://localhost:3002', 'https://milafront.onrender.com'],
   credentials: true
 }));
 app.use(express.json({ limit: '1mb' }));

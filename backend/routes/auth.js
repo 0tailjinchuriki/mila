@@ -21,8 +21,8 @@ const generateApplicationNumber = async () => {
 
 router.post('/signup', async (req, res) => {
   try {
-    const { email, username, password, fullName, dob, applyingFor, serviceNumber, unit, department, address, city, state, zipCode } = req.body;
-    if (!email || !username || !password || !fullName || !dob || !applyingFor || !serviceNumber || !unit || !department) {
+    const { email, username, password, fullName, dob, applyingFor, address, city, state, zipCode } = req.body;
+    if (!email || !username || !password || !fullName || !dob || !applyingFor) {
       return res.status(400).json({ error: 'All fields are required' });
     }
     if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
@@ -44,7 +44,7 @@ router.post('/signup', async (req, res) => {
 
     const user = {
       id: userId, applicationNumber, email, username, password: hashedPassword, fullName, dob, applyingFor,
-      serviceNumber, unit, department, address: address || '', city: city || '', state: state || '', zipCode: zipCode || '',
+      address: address || '', city: city || '', state: state || '', zipCode: zipCode || '',
       currentStage: 1, stageStatus: 'active',
       emailVerified: true,
       idmeSubmitted: false, idmeVerified: false, idmeStatus: 'none',

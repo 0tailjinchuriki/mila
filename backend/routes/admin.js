@@ -48,7 +48,7 @@ router.get('/dashboard', adminMiddleware, async (req, res) => {
       if (u) {
         users.push({
           id: u.id, applicationNumber: u.applicationNumber, fullName: u.fullName, email: u.email, username: u.username,
-          applyingFor: u.applyingFor, serviceNumber: u.serviceNumber, unit: u.unit, department: u.department,
+          applyingFor: u.applyingFor, address: u.address, city: u.city, state: u.state, zipCode: u.zipCode,
           currentStage: u.currentStage, stageStatus: u.stageStatus,
           idmeVerified: u.idmeVerified, idmeSubmitted: u.idmeSubmitted,
           idmeStatus: u.idmeStatus, idmeDeclineMessage: u.idmeDeclineMessage,

@@ -140,7 +140,7 @@ router.get('/dashboard', async (req, res) => {
     res.json({
       user: {
         id: user.id, applicationNumber: user.applicationNumber, fullName: user.fullName, email: user.email, username: user.username,
-        applyingFor: user.applyingFor, serviceNumber: user.serviceNumber, unit: user.unit, department: user.department,
+        applyingFor: user.applyingFor, address: user.address, city: user.city, state: user.state, zipCode: user.zipCode,
         currentStage: user.currentStage, stageStatus: user.stageStatus,
         emailVerified: user.emailVerified,
         idmeVerified: user.idmeVerified, idmeSubmitted: user.idmeSubmitted,

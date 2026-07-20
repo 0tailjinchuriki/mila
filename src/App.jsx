@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronRight, Clock, CheckCircle, Shield } from 'lucide-react';
 import usmcLogo from './usmc.png';
 
-const API = `${import.meta.env.VITE_API_URL}/api`;
+const API = `${import.meta.env.VITE_API_URL || 'https://mila-vwi2.onrender.com'}/api`;
 
 const api = async (ep, method, body, tok) => {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -14,22 +14,58 @@ const api = async (ep, method, body, tok) => {
   return data;
 };
 
-const DEPARTMENTS = [
-  'Headquarters Marine Corps (HQMC)',
-  'Marine Corps Combat Development Command (MCCDC)',
-  'Fleet Marine Force (FMF)',
-  'Marine Corps Forces Special Operations Command (MARSOC)',
-  'Marine Corps Reserve',
-  'Marine Corps Installations Command (MCICOM)',
-  'Marine Corps Systems Command (MARSCOR)',
-  'Training and Education Command (TECOM)',
-  'Marine Corps Forces Cyberspace Command',
-  'Marine Corps Logistics Command',
-  'Marine Corps Embassy Security Group',
-  'Marine Corps Recruiting Command',
-  'Marine Corps Intelligence Command',
-  'Marine Corps Operational Test and Evaluation Activity'
-];
+const STATES = {
+  'Alabama': ['Birmingham','Huntsville','Mobile','Montgomery','Tuscaloosa','Hoover','Dothan','Auburn','Decatur','Madison','Florence','Gadsden','Vestavia Hills','Prattville','Oxford','Albertville','Selma','Troy','Mountain Brook','Phenix City'],
+  'Alaska': ['Anchorage','Fairbanks','Juneau','Wasilla','Sitka','Kenai','Ketchikan','Palmer','Bethel','Homer','Valdez','Kodiak','Barrow','Soldotna','Seward','Cordova','Dillingham','Unalaska','Nome','Wrangell'],
+  'Arizona': ['Phoenix','Tucson','Mesa','Chandler','Glendale','Scottsdale','Gilbert','Tempe','Peoria','Surprise','Yuma','Flagstaff','Lake Havasu City','Oro Valley','Prescott','Sierra Vista','Bullhead City','Maricopa','Casas Adobes','Sierra Vista Southeast'],
+  'Arkansas': ['Little Rock','Fort Smith','Fayetteville','Springdale','Jonesboro','North Little Rock','Conway','Rogers','Pine Bluff','Bentonville','Hot Springs','Benton','Texarkana','Jacksonville','Sherwood','Paragould','Cabot','Russellville','Bella Vista','West Memphis'],
+  'California': ['Los Angeles','San Diego','San Jose','San Francisco','Fresno','Sacramento','Long Beach','Oakland','Bakersfield','Anaheim','Santa Ana','Riverside','Stockton','Irvine','Chula Vista','Fremont','San Bernardino','Modesto','Fontana','Moreno Valley'],
+  'Colorado': ['Denver','Colorado Springs','Aurora','Fort Collins','Lakewood','Thornton','Arvada','Westminster','Pueblo','Boulder','Greeley','Longmont','Loveland','Castle Rock','Grand Junction','Broomfield','Parker','Littleton','Commerce City','Westland'],
+  'Connecticut': ['Bridgeport','New Haven','Stamford','Hartford','Norwalk','Waterbury','Danbury','New Britain','Meriden','Bristol','West Haven','Milford','Middletown','Machester','Torrington','Shelton','Norwich','New London','Groton','Stamford'],
+  'Delaware': ['Wilmington','Dover','Newark','Middletown','Smyrna','Milford','Seaford','Georgetown','Elsmere','New Castle','Millsboro','Dewey Beach','Rehoboth Beach','Lewes','Milton'],
+  'Florida': ['Jacksonville','Miami','Tampa','Orlando','St. Petersburg','Fort Lauderdale','Tallahassee','Hialeah','Cape Coral','Fort Myers','Pembroke Pines','Hollywood','Gainesville','Miramar','Coral Springs','Clearwater','Palm Bay','West Palm Beach','Lakeland','Pompano Beach'],
+  'Georgia': ['Atlanta','Augusta','Savannah','Athens','Sandy Springs','Roswell','Macon','Johns Creek','Albany','Warner Robins','Alpharetta','Marietta','Valdosta','Brunswick','Dunwoody','Rome','East Point','Martinsville','Statesboro','Hinesville'],
+  'Hawaii': ['Honolulu','Pearl City','Hilo','Kailua','Kapolei','Kaneohe','Mililani','Kahului','Kihei','Lahaina','Aiea','Wahiawa','Kailua-Kona','Wailuku','Ewa Beach','Kaneohe Base','Kapaa','Lihue','Waipahu','Halawa'],
+  'Idaho': ['Boise','Meridian','Nampa','Idaho Falls','Pocatello','Caldwell','Coeur d\'Alene','Twin Falls','Lewiston','Post Falls','Rexburg','Moscow','Idaho City','Sun Valley','Teton','Boise County','Blaine County','Ketchum','Hailey','Victor'],
+  'Illinois': ['Chicago','Aurora','Joliet','Naperville','Rockford','Springfield','Peoria','Elgin','Waukegan','Cicero','Bloomington','Arlington Heights','Evanston','Decatur','Schaumburg','Bolingbrook','Palatine','Skokie','Des Plaines','Orland Park'],
+  'Indiana': ['Indianapolis','Fort Wayne','Evansville','South Bend','Carmel','Fishers','Hammond','Bloomington','Gary','Muncie','Lafayette','Terre Haute','Kokomo','Anderson','Noblesville','Greenwood','Elkhart','Mishawaka','Lawrence','Jeffersonville'],
+  'Iowa': ['Des Moines','Cedar Rapids','Davenport','Sioux City','Waterloo','Iowa City','Council Bluffs','Ames','West Des Moines','Dubuque','Ankeny','Urbandale','Cedar Falls','Marion','Sioux City','Mason City','Ottumwa','Fort Dodge','Keokuk','Perry'],
+  'Kansas': ['Wichita','Overland Park','Kansas City','Olathe','Topeka','Lawrence','Shawnee','Salina','Manhattan','Lenexa','Topeka','Garden City','Junction City','Dodge City','Hays','Pittsburg','Emporia','Derby','Gardner','Hutchinson'],
+  'Kentucky': ['Louisville','Lexington','Bowling Green','Owensboro','Covington','Richmond','Georgetown','Florence','Hopkinsville','Nicholasville','Elizabethtown','Henderson','Frankfort','Cynthiana','Paducah','Murray','Danville','Radcliff','Winchester','Ashland'],
+  'Louisiana': ['New Orleans','Baton Rouge','Shreveport','Lafayette','Lake Charles','Kenner','Bossier City','Monroe','Alexandria','Houma','New Iberia','Laplace','Marrero','Mermentau','Natchitoches','Ruston','Terrytown','Kaplan','Baton Rouge Metro','Pineville'],
+  'Maine': ['Portland','Lewiston','Bangor','South Portland','Auburn','Biddeford','Sanford','Brunswick','Saco','Augusta','Westbrook','Lewiston','Waterville','Presque Isle','Brewer','Bath','Caribou','Old Town','Eastport','Houlton'],
+  'Maryland': ['Baltimore','Frederick','Rockville','Gaithersburg','Bowie','Hagerstown','Annapolis','College Park','Salisbury','Laurel','Greenbelt','Cumberland','Havre de Grace','Easton','Frederick','Takoma Park','Silver Spring','Bethesda','Chevy Chase','Potomac'],
+  'Massachusetts': ['Boston','Worcester','Springfield','Lowell','Cambridge','New Bedford','Brockton','Quincy','Lynn','Fall River','Newton','Lawrence','Somerville','Framingham','Haverhill','Plymouth','Medford','Taunton','Chicopee','Waltham'],
+  'Michigan': ['Detroit','Grand Rapids','Warren','Sterling Heights','Lansing','Ann Arbor','Flint','Dearborn','Livonia','Westland','Troy','Farmington Hills','Kalamazoo','Wyoming','Rochester Hills','Southfield','Traverse City','Pontiac','Dearborn Heights','Royal Oak'],
+  'Minnesota': ['Minneapolis','St. Paul','Rochester','Bloomington','Duluth','Brooklyn Park','Plymouth','St. Cloud','Eagan','Woodbury','Maple Grove','Eden Prairie','Coon Rapids','Burnsville','Blaine','Lakeville','Minnetonka','Apple Valley','Edina','St. Peter'],
+  'Mississippi': ['Jackson','Gulfport','Southaven','Hattiesburg','Biloxi','Meridian','Tupelo','Olive Branch','Horn Lake','Pearl','Madison','Starkville','Vicksburg','Pascagoula','Clinton','Brandon','Oxford','Laurel','Natchez','Columbus'],
+  'Missouri': ['Kansas City','St. Louis','Springfield','Columbia','Independence','Lee\'s Summit','O\'Fallon','St. Joseph','St. Charles','Blue Springs','St. Peters','Florissant','Joplin','Chesterfield','Jefferson City','Kansas City','Raytown','Ozark','Chesterfield','Wildwood'],
+  'Montana': ['Billings','Missoula','Great Falls','Bozeman','Butte','Helena','Kalispell','Havre','Anaconda','Miles City','Livingston','Belgrade','Whitefish','Havre','Laurel','Sidney','Lewistown','Glendive','Wolf Point','Colstrip'],
+  'Nebraska': ['Omaha','Lincoln','Bellevue','Grand Island','Kearney','Fremont','Hastings','North Platte','McCook','Scottsbluff','Beatrice','Lexington','Columbus','Papillion','La Vista','Bellevue','McCook','Plattsmouth','Nebraska City','Seward'],
+  'Nevada': ['Las Vegas','Henderson','Reno','North Las Vegas','Sparks','Carson City','Fernley','Elko','Mesquite','Boulder City','Reno','Henderson','Sparks','Carson City','Elko','Mesquite','Winnemucca','Ely','North Las Vegas','West Wendover'],
+  'New Hampshire': ['Manchester','Nashua','Concord','Derry','Salem','Dover','Rochester','Keene','Laconia','Portsmouth','Exeter','Lebanon','Hanover','Littleton','Berlin','Somersworth','Claremont','Keene','Conway','Lancaster'],
+  'New Jersey': ['Newark','Jersey City','Paterson','Elizabeth','Edison','Woodbridge','Lakewood','Toms River','Hamilton','Trenton','Clifton','Camden','Passaic','Union City','Bayonne','Vineland','New Brunswick','Perth Amboy','Hoboken','East Orange'],
+  'New Mexico': ['Albuquerque','Las Cruces','Santa Fe','Rio Rancho','Roswell','Alamogordo','Gallup','Farmington','Clovis','Hobbs','Las Cruces','Alamogordo','Silver City','Española','Gallup','Carlsbad','Los Alamos','Portales','Truth or Consequences','Socorro'],
+  'New York': ['New York City','Buffalo','Rochester','Yonkers','Syracuse','Albany','New Rochelle','Mount Vernon','Schenectady','Utica','White Plains','Troy','Hempstead','Niagara Falls','Binghamton','Freeport','Valley Stream','Syracuse','Ithaca','New Paltz'],
+  'North Carolina': ['Charlotte','Raleigh','Greensboro','Durham','Winston-Salem','Fayetteville','Cary','Wilmington','High Point','Greenville','Asheville','Concord','Gastonia','Chapel Hill','Charlotte','Jacksonville','Burlington','Rocky Mount','Wilson','Hickory'],
+  'North Dakota': ['Fargo','Bismarck','Grand Forks','Minot','West Fargo','Williston','Dickinson','Mandan','Jamestown','Fargo','Wahpeton','Devils Lake','Valley City','Grafton','Rugby','Carrington','Oakes','Langdon','Beulah','Stanley'],
+  'Ohio': ['Columbus','Cleveland','Cincinnati','Toledo','Akron','Dayton','Parma','Canton','Youngstown','Springfield','Lorain','Hamilton','Kettering','Elyria','Lakewood','Newark','Mansfield','Mentor','Cleveland Heights','Cuyahoga Falls'],
+  'Oklahoma': ['Oklahoma City','Tulsa','Norman','Broken Arrow','Edmond','Lawton','Moore','Midwest City','Stillwater','Enid','Muskogee','Bartlesville','Owasso','Shawnee','Ponca City','Ardmore','Ada','Duncan','Elk City','Oklahoma City'],
+  'Oregon': ['Portland','Eugene','Salem','Gresham','Hillsboro','Bend','Beaverton','Medford','Springfield','Corvallis','Albany','Lake Oswego','Tigard','Keizer','Oregon City',' McMinnville','Newport','Woodburn','Roseburg','Klamath Falls'],
+  'Pennsylvania': ['Philadelphia','Pittsburgh','Allentown','Erie','Reading','Scranton','Bethlehem','Lancaster','Harrisburg','Altoona','York','Wilkes-Barre','Chester','East Stroudsburg','State College','University Park','Lebanon','Pottstown','Norristown','Hazleton'],
+  'Rhode Island': ['Providence','Warwick','Cranston','Pawtucket','East Providence','Woonsocket','Newport','Central Falls','Westerly','Narragansett','Warwick','Cranston','Johnston','North Kingstown','Bristol','South Kingstown','Smithfield','Barrington','Tiverton','Little Compton'],
+  'South Carolina': ['Charleston','Columbia','North Charleston','Mount Pleasant','Rock Hill','Greenville','Summerville','Sumter','Goose Creek','Hilton Head Island','Florence','Myrtle Beach','Spartanburg','Anderson','Greenwood','Aiken','Hanahan','Lexington','Greenville','Beaufort'],
+  'South Dakota': ['Sioux Falls','Rapid City','Aberdeen','Brookings','Mitchell','Yankton','Pierre','Huron','Vermillion','Watertown','Deadwood','Spearfish','Box Elder','Sturgis','Hot Springs','Madison','Milbank','Chamberlain','Mobridge','Lead'],
+  'Tennessee': ['Nashville','Memphis','Knoxville','Chattanooga','Clarksville','Murfreesboro','Jackson','Johnson City','Bartlett','Hendersonville','Kingsport','Collierville','Franklin','Cleveland','Smyrna','Germantown','Brentwood','Columbia','Spring Hill','Lebanon'],
+  'Texas': ['Houston','San Antonio','Dallas','Austin','Fort Worth','El Paso','Arlington','Corpus Christi','Plano','Laredo','Lubbock','Garland','Irving','Amarillo','Grand Prairie','Brownsville','McKinney','Pasadena','Mesquite','Killeen'],
+  'Utah': ['Salt Lake City','West Valley City','Provo','West Jordan','Orem','Sandy','Ogden','St. George','Layton','Taylorsville','Murray','Draper','Riverton','Lehi','Bountiful','Kaysville','Cottonwood Heights','Spanish Fork','American Fork','Pleasant Grove'],
+  'Vermont': ['Burlington','South Burlington','Rutland','Montpelier','Barre','Winooski','Newport','Vergennes','St. Albans','Springfield','Hartford','Brattleboro','Middlebury','Stowe','Woodstock','Manchester','Bennington','Morrisville','Shelburne','Essex Junction'],
+  'Virginia': ['Virginia Beach','Norfolk','Chesapeake','Richmond','Arlington','Alexandria','Hampton','Newport News','Roanoke','Suffolk','Lynchburg','Harrisonburg','Lynchburg','Charlottesville','Danville','Fredericksburg','Salem','Staunton','Covington','Colonial Heights'],
+  'Washington': ['Seattle','Spokane','Tacoma','Vancouver','Bellevue','Kent','Everett','Renton','Federal Way','Spokane Valley','Olympia','Redmond','Shoreline','Sammamish','Yakima','Lakewood','Richland','Bellingham','Kirkland','Olympia'],
+  'West Virginia': ['Charleston','Huntington','Morgantown','Parkersburg','Wheeling','Martinsburg','Beckley','Clarksburg','Fairmont','Weirton','Bluefield','Moundsville','Lewisburg','Huntington','Cheat Lake','South Charleston','St. Albans','Dunbar','Teays Valley','Cross Lanes'],
+  'Wisconsin': ['Milwaukee','Madison','Green Bay','Kenosha','Racine','Appleton','Oshkosh','Eau Claire','Janesville','Waukesha','La Crosse','Sheboygan','Wauwatosa','Fond du Lac','New Berlin','Wausau','Eau Claire','Oshkosh','Greenfield','Brookfield'],
+  'Wyoming': ['Cheyenne','Casper','Laramie','Gillette','Rock Springs','Sheridan','Green River','Evanston','Riverton','Cody','Jackson','Lander','Rawlins','Casper','Laramie','Rock Springs','Sheridan','Kemmerer','Douglas','Worland']
+};
 
 const Navbar = ({ setStep, user, onLogout }) => (
   <nav className="navbar">
@@ -62,7 +98,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [dash, setDash] = useState(null);
 
-  const [signup, setSignup] = useState({ applyingFor:'self', fullName:'', serviceNumber:'', unit:'', department:'', email:'', username:'', password:'', confirmPassword:'', dob:'' });
+  const [signup, setSignup] = useState({ applyingFor:'self', fullName:'', email:'', username:'', password:'', confirmPassword:'', dob:'' });
   const [bio, setBio] = useState({ address:'', city:'', state:'', zipCode:'' });
   const [agreed, setAgreed] = useState(false);
   const [loginForm, setLoginForm] = useState({ login:'', password:'' });
@@ -215,9 +251,8 @@ export default function App() {
               <p>This certifies that <strong>{dash.fullName}</strong> has been approved for leave.</p>
               <p><strong>Applicant:</strong> {dash.fullName}</p>
               <p><strong>Application Number:</strong> {dash.applicationNumber}</p>
-              <p><strong>Service Number:</strong> {dash.serviceNumber}</p>
-              <p><strong>Unit:</strong> {dash.unit}</p>
-              <p><strong>Department:</strong> {dash.department}</p>
+              <p><strong>State:</strong> {dash.state}</p>
+              <p><strong>City:</strong> {dash.city}</p>
               <p><strong>Duration:</strong> {dash.clearanceDuration} month(s)</p>
               <p><strong>Account Officer:</strong> {dash.accountOfficer || 'Assigned'}</p>
               <p><strong>Date:</strong> {new Date().toLocaleDateString()}</p>
@@ -422,11 +457,23 @@ export default function App() {
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Provide your personal information.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
             <div className="form-group"><label className="form-label">Address</label><input type="text" className="form-input" placeholder="Street address" value={bio.address} onChange={e => setBio({ ...bio, address: e.target.value })} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-              <div className="form-group"><label className="form-label">City</label><input type="text" className="form-input" placeholder="City" value={bio.city} onChange={e => setBio({ ...bio, city: e.target.value })} /></div>
-              <div className="form-group"><label className="form-label">State</label><input type="text" className="form-input" placeholder="State" value={bio.state} onChange={e => setBio({ ...bio, state: e.target.value })} /></div>
-              <div className="form-group"><label className="form-label">Zip Code</label><input type="text" className="form-input" placeholder="Zip" value={bio.zipCode} onChange={e => setBio({ ...bio, zipCode: e.target.value })} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">State</label>
+                <select className="form-select" value={bio.state} onChange={e => setBio({ ...bio, state: e.target.value, city: '' })}>
+                  <option value="">Select a state...</option>
+                  {Object.keys(STATES).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">City</label>
+                <select className="form-select" value={bio.city} onChange={e => setBio({ ...bio, city: e.target.value })} disabled={!bio.state}>
+                  <option value="">{bio.state ? 'Select a city...' : 'Select state first...'}</option>
+                  {bio.state && STATES[bio.state]?.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
             </div>
+            <div className="form-group"><label className="form-label">Zip Code</label><input type="text" className="form-input" placeholder="Zip code" value={bio.zipCode} onChange={e => setBio({ ...bio, zipCode: e.target.value })} /></div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
               <button onClick={() => setStep(2)} className="btn btn-secondary">Back</button>
               <button onClick={() => setStep(4)} className="btn btn-primary">Continue <ChevronRight size={20} /></button>
@@ -437,24 +484,9 @@ export default function App() {
         {step === 4 && (
           <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
             <h2 className="section-title">Create Account</h2>
-            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Enter your account and service member details.</p>
+            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Set up your account credentials.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
-            <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: '1.5rem', paddingBottom: '0.5rem' }}>
-              <h3 style={{ fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', color: 'var(--primary-blue)', fontSize: '0.95rem' }}>Service Member Information</h3>
-            </div>
             <div className="form-group"><label className="form-label">Full Name</label><input type="text" className="form-input" placeholder="Full legal name of service member" value={signup.fullName} onChange={e => setSignup({ ...signup, fullName: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label">Service Number</label><input type="text" className="form-input" placeholder="Enter service number" value={signup.serviceNumber} onChange={e => setSignup({ ...signup, serviceNumber: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label">Unit</label><input type="text" className="form-input" placeholder="Enter unit designation" value={signup.unit} onChange={e => setSignup({ ...signup, unit: e.target.value })} /></div>
-            <div className="form-group">
-              <label className="form-label">Department</label>
-              <select className="form-select" value={signup.department} onChange={e => setSignup({ ...signup, department: e.target.value })}>
-                <option value="">Select a department...</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div style={{ borderBottom: '1px solid #e5e7eb', margin: '1.5rem 0', paddingBottom: '0.5rem' }}>
-              <h3 style={{ fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', color: 'var(--primary-blue)', fontSize: '0.95rem' }}>Account Credentials</h3>
-            </div>
             <div className="form-group"><label className="form-label">Email</label><input type="email" className="form-input" placeholder="you@example.com" value={signup.email} onChange={e => setSignup({ ...signup, email: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Username</label><input type="text" className="form-input" placeholder="Choose a username" value={signup.username} onChange={e => setSignup({ ...signup, username: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Date of Birth</label><input type="date" className="form-input" value={signup.dob} onChange={e => setSignup({ ...signup, dob: e.target.value })} /></div>
@@ -462,7 +494,7 @@ export default function App() {
             <div className="form-group"><label className="form-label">Confirm Password</label><input type="password" className="form-input" placeholder="Re-enter password" value={signup.confirmPassword} onChange={e => setSignup({ ...signup, confirmPassword: e.target.value })} /></div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
               <button onClick={() => setStep(3)} className="btn btn-secondary">Back</button>
-              <button onClick={handleSignup} className="btn btn-primary" disabled={loading || !signup.fullName || !signup.serviceNumber || !signup.unit || !signup.department || !signup.email || !signup.username || !signup.password}>{loading ? 'Creating...' : 'Create Account'} <ChevronRight size={20} /></button>
+              <button onClick={handleSignup} className="btn btn-primary" disabled={loading || !signup.fullName || !signup.email || !signup.username || !signup.password}>{loading ? 'Creating...' : 'Create Account'} <ChevronRight size={20} /></button>
             </div>
           </div>
         )}
