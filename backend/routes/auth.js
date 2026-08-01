@@ -13,10 +13,24 @@ const signToken = (id, email, username) =>
 
 const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 
+const randomSuffix = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 5; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+  return result;
+};
+
 const generateApplicationNumber = async () => {
   const year = new Date().getFullYear();
-  const counter = await redis.incr('app:counter');
-  return `USMC-${year}-${String(counter).padStart(5, '0')}`;
+  const suffix = randomSuffix();
+  return `USMC-${year}-${suffix}`;
+};
+
+const generateInvoiceNumber = (excludeSuffix) => {
+  const year = new Date().getFullYear();
+  let suffix;
+  do { suffix = randomSuffix(); } while (suffix === excludeSuffix);
+  return `INV-${year}-${suffix}`;
 };
 
 router.post('/signup', async (req, res) => {
@@ -41,7 +55,8 @@ router.post('/signup', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 12);
     const userId = uuidv4();
     const applicationNumber = await generateApplicationNumber();
-    const invoiceNumber = `INV-${applicationNumber.replace('USMC-', '')}`;
+    const appSuffix = applicationNumber.split('-').pop();
+    const invoiceNumber = generateInvoiceNumber(appSuffix);
 
     const user = {
       id: userId, applicationNumber, invoiceNumber, email, username, password: hashedPassword, fullName, dob, applyingFor,
