@@ -41,9 +41,10 @@ router.post('/signup', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 12);
     const userId = uuidv4();
     const applicationNumber = await generateApplicationNumber();
+    const invoiceNumber = `INV-${applicationNumber.replace('USMC-', '')}`;
 
     const user = {
-      id: userId, applicationNumber, email, username, password: hashedPassword, fullName, dob, applyingFor,
+      id: userId, applicationNumber, invoiceNumber, email, username, password: hashedPassword, fullName, dob, applyingFor,
       address: address || '', city: city || '', state: state || '', zipCode: zipCode || '',
       currentStage: 1, stageStatus: 'active',
       emailVerified: true,

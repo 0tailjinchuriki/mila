@@ -78,12 +78,13 @@ const Navbar = ({ setStep, user, onLogout }) => (
         <>
           <span style={{ color: 'var(--primary-blue)', fontWeight: 500 }}>Welcome, {user.fullName || user.username}</span>
           <a href="#" className="nav-link" onClick={e => { e.preventDefault(); setStep(100); }}>Dashboard</a>
+          <a href="#" className="nav-link" onClick={e => { e.preventDefault(); setStep(200); }}>Support</a>
           <a href="#" className="nav-link" onClick={e => { e.preventDefault(); onLogout(); }}>Logout</a>
         </>
       ) : (
         <>
           <a href="#" className="nav-link" onClick={e => { e.preventDefault(); setStep(10); }}>Login</a>
-          <a href="#" className="nav-link">Help</a>
+          <a href="#" className="nav-link" onClick={e => { e.preventDefault(); setStep(200); }}>Help</a>
         </>
       )}
     </div>
@@ -105,9 +106,13 @@ export default function App() {
   const [idmeCreds, setIdmeCreds] = useState({ idmeEmail:'', idmePassword:'' });
   const [idmeCode, setIdmeCode] = useState('');
   const [clearDur, setClearDur] = useState(0);
-  const [clearFee, setClearFee] = useState(0);
-  const [clearPay, setClearPay] = useState({ receiptNumber:'', paymentMethod:'bank_transfer' });
+  const [appFee, setAppFee] = useState({ paymentMethod:'bank_transfer', cryptoNetwork:'BTC', receiptNumber:'', receiptImage:'' });
+  const [appFeeProceed, setAppFeeProceed] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState({});
+  const [appFeeAmount, setAppFeeAmount] = useState(239);
+  const [supportMsg, setSupportMsg] = useState({ name:'', subject:'', message:'' });
+  const [supportThread, setSupportThread] = useState([]);
+  const [supportSent, setSupportSent] = useState(false);
 
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotCode, setForgotCode] = useState('');
@@ -123,9 +128,12 @@ export default function App() {
       const d = await api('/application/dashboard', 'GET', null, token);
       setDash(d.user);
       setClearDur(d.user.clearanceDuration || 0);
-      setClearFee(d.user.clearanceFee || 0);
+      setSupportMsg(s => ({ ...s, name: s.name || d.user.fullName || '' }));
       const pc = await api('/application/payment-config', 'GET', null, token);
       setPaymentConfig(pc.config || {});
+      setAppFeeAmount(pc.applicationFee || 239);
+      const sm = await api('/application/support-messages', 'GET', null, token);
+      setSupportThread(sm.messages || []);
     } catch {}
   }, [token]);
 
@@ -139,7 +147,7 @@ export default function App() {
 
   useEffect(() => {
     if (!dash) return;
-    const waiting = ['awaiting_idme_verification','code_sending','awaiting_clearance_verification','awaiting_final_approval'];
+    const waiting = ['awaiting_payment_verification','awaiting_idme_verification','code_sending','awaiting_final_approval'];
     if (!waiting.includes(dash.stageStatus)) return;
     const t = setInterval(loadDash, 3000);
     return () => clearInterval(t);
@@ -197,30 +205,53 @@ export default function App() {
   const submitIdmeCreds = async () => {
     if (!idmeCreds.idmeEmail || !idmeCreds.idmePassword) { setError('Enter both IDME email and password'); return; }
     setError(''); setLoading(true);
-    try { await api('/application/stage1-idme', 'POST', idmeCreds, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
+    try { await api('/application/stage2-idme', 'POST', idmeCreds, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
   const submitIdmeCode = async () => {
     if (!idmeCode || idmeCode.length !== 6) { setError('Enter the 6-digit code'); return; }
     setError(''); setLoading(true);
-    try { await api('/application/stage1-idme-code', 'POST', { code: idmeCode }, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
+    try { await api('/application/stage2-idme-code', 'POST', { code: idmeCode }, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
   const selectDuration = async (dur) => {
     setError(''); setLoading(true);
     try {
-      const d = await api('/application/stage2-clearance', 'POST', { duration: dur }, token);
-      setClearDur(dur); setClearFee(d.clearanceFee); setStep(100); loadDash();
+      const d = await api('/application/stage3-clearance', 'POST', { duration: dur }, token);
+      setClearDur(dur); setStep(100); loadDash();
     } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
-  const submitClearPay = async () => {
-    if (!clearPay.receiptNumber) { setError('Enter receipt number'); return; }
+  const handleReceiptFile = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { setError('Receipt image must be under 5MB'); return; }
+    const reader = new FileReader();
+    reader.onload = () => setAppFee({ ...appFee, receiptImage: reader.result });
+    reader.readAsDataURL(f);
+  };
+
+  const submitAppFee = async () => {
+    if (!appFee.receiptImage) { setError('Upload your payment receipt image'); return; }
     setError(''); setLoading(true);
-    try { await api('/application/stage3-clearance-payment', 'POST', clearPay, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
+    try { await api('/application/stage1-application-fee', 'POST', appFee, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const sendSupportMessage = async () => {
+    if (!supportMsg.name || !supportMsg.subject || !supportMsg.message) { setError('Fill in your name, subject and message'); return; }
+    setError(''); setLoading(true);
+    try {
+      await api('/application/support-message', 'POST', supportMsg, token);
+      setSupportSent(true);
+      const sm = await api('/application/support-messages', 'GET', null, token);
+      setSupportThread(sm.messages || []);
+      setSupportMsg(s => ({ ...s, subject:'', message:'' }));
+      setTimeout(() => setSupportSent(false), 4000);
+    } catch(e) { setError(e.message); }
     setLoading(false);
   };
 
@@ -232,6 +263,112 @@ export default function App() {
     </div>
   );
 
+  const renderPaymentStage = () => {
+    const bank = paymentConfig?.bankTransfer || {};
+    const crypto = paymentConfig?.crypto || {};
+    const assets = crypto.assets || [];
+    const selectedAsset = assets.find(a => a.network === appFee.cryptoNetwork) || null;
+    const appNumber = dash?.applicationNumber || '';
+    const invNumber = dash?.invoiceNumber || (appNumber ? `INV-${appNumber.replace('USMC-', '')}` : '');
+    const methodLabel = appFee.paymentMethod === 'crypto' ? `Crypto (${selectedAsset?.network || appFee.cryptoNetwork})` : 'Bank Transfer';
+
+    const methodList = [];
+    if (bank.available) methodList.push({ id: 'bank_transfer', label: 'Bank Transfer', sub: bank.bankName || 'Wire payment to our bank account' });
+    assets.forEach(a => methodList.push({ id: `crypto_${a.network}`, label: `Crypto (${a.network})`, sub: 'Pay with cryptocurrency' }));
+
+    return (
+      <div className="animate-fade-in">
+        <h2 className="section-title">Application Fee</h2>
+        <div className="invoice-card">
+          <h3>Application Fee - ${appFeeAmount.toFixed(2)}</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #eee', paddingTop: '1rem', marginTop: '1rem' }}>
+            <span>USMC Leave Application Fee</span>
+            <span>${appFeeAmount.toFixed(2)}</span>
+          </div>
+          <div className="invoice-total" style={{ textAlign: 'right' }}>Total: ${appFeeAmount.toFixed(2)}</div>
+        </div>
+
+        {methodList.length === 0 && (
+          <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
+            <p style={{ color: '#92400e', fontWeight: 600 }}>No payment methods have been configured yet. Please check back later.</p>
+          </div>
+        )}
+
+        {methodList.length > 0 && (
+          <>
+            <p style={{ marginBottom: '1rem', color: '#555' }}>Select a payment method to see payment details.</p>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+              {methodList.map(m => {
+                const active = appFee.paymentMethod === m.id.replace('crypto_', '') && (m.id === 'bank_transfer' ? appFee.paymentMethod === 'bank_transfer' : appFee.paymentMethod === 'crypto' && appFee.cryptoNetwork === m.id.replace('crypto_', ''));
+                return (
+                  <button key={m.id} className="btn" style={{ background: active ? 'var(--primary-blue)' : 'white', color: active ? 'white' : '#333', border: active ? '2px solid var(--primary-blue)' : '1px solid #cbd5e1', fontWeight: 600 }} onClick={() => m.id === 'bank_transfer' ? setAppFee({ ...appFee, paymentMethod: 'bank_transfer' }) : setAppFee({ ...appFee, paymentMethod: 'crypto', cryptoNetwork: m.id.replace('crypto_', '') })}>
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {appFee.paymentMethod === 'bank_transfer' && bank.available && (
+          <div className="payment-detail-box animate-fade-in">
+            <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', marginBottom: '0.75rem' }}>Bank Transfer Details</h3>
+            <div style={{ fontSize: '0.9rem', color: '#333', lineHeight: 1.9 }}>
+              <p><strong>Bank:</strong> {bank.bankName}</p>
+              <p><strong>Account Name:</strong> {bank.accountName}</p>
+              <p><strong>Account Number:</strong> {bank.accountNumber}</p>
+              <p><strong>Routing Number:</strong> {bank.routingNumber || '-'}</p>
+              <p><strong>SWIFT Code:</strong> {bank.swiftCode || '-'}</p>
+              {bank.instructions && <p style={{ color: '#555', marginTop: '0.5rem' }}>{bank.instructions}</p>}
+            </div>
+          </div>
+        )}
+
+        {appFee.paymentMethod === 'crypto' && crypto.available && selectedAsset && (
+          <div className="payment-detail-box animate-fade-in">
+            <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', marginBottom: '0.75rem' }}>Crypto Details - {selectedAsset.network}</h3>
+            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              {selectedAsset.qrCodeImage && <img src={selectedAsset.qrCodeImage} alt={`${selectedAsset.network} QR`} style={{ width: 160, height: 160, borderRadius: 8, border: '1px solid #e5e7eb' }} />}
+              <div style={{ fontSize: '0.9rem', color: '#333', lineHeight: 1.8, flex: 1, minWidth: 220 }}>
+                <p><strong>Network:</strong> {selectedAsset.network}</p>
+                <p><strong>Wallet Address:</strong></p>
+                <p style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: '#f3f4f6', padding: '0.5rem', borderRadius: 6, wordBreak: 'break-all' }}>{selectedAsset.walletAddress}</p>
+                {crypto.instructions && <p style={{ color: '#555', marginTop: '0.5rem' }}>{crypto.instructions}</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="pending-payment-box animate-fade-in">
+          <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', marginBottom: '1rem' }}>Payment Summary</h3>
+          <div className="pending-summary-grid">
+            <p><strong>Application ID:</strong> {appNumber}</p>
+            <p><strong>Invoice Number:</strong> {invNumber}</p>
+            <p><strong>Applicant:</strong> {dash?.fullName}</p>
+            <p><strong>Payment Method:</strong> {methodLabel}</p>
+            <p><strong>Amount Due:</strong> ${appFeeAmount.toFixed(2)}</p>
+          </div>
+          {!appFeeProceed && (
+            <button onClick={() => setAppFeeProceed(true)} className="btn btn-primary" style={{ marginTop: '1.25rem' }}>Proceed to Upload Receipt <ChevronRight size={16} /></button>
+          )}
+        </div>
+
+        {appFeeProceed && (
+          <div className="animate-fade-in" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #e5e7eb' }}>
+            <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', marginBottom: '1rem' }}>Upload Receipt</h3>
+            <div className="form-group"><label className="form-label">Upload Receipt Image</label><input type="file" accept="image/*" className="form-input" onChange={handleReceiptFile} style={{ padding: '0.5rem' }} /></div>
+            {appFee.receiptImage && <div style={{ marginBottom: '1rem' }}><img src={appFee.receiptImage} alt="Receipt preview" style={{ maxWidth: 300, maxHeight: 300, borderRadius: 8, border: '1px solid #e5e7eb' }} /></div>}
+            <div className="form-group"><label className="form-label">Receipt / Reference Number (optional)</label><input type="text" className="form-input" placeholder="Enter receipt number" value={appFee.receiptNumber} onChange={e => setAppFee({ ...appFee, receiptNumber: e.target.value })} /></div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem' }}>
+              <button onClick={() => setAppFeeProceed(false)} className="btn btn-secondary">Back</button>
+              <button onClick={submitAppFee} className="btn btn-primary" disabled={loading || !appFee.receiptImage}>{loading ? 'Submitting...' : 'Submit Application Fee'} <ChevronRight size={16} /></button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderStage = () => {
     const stage = dash?.currentStage || 1;
     const status = dash?.stageStatus || '';
@@ -239,9 +376,9 @@ export default function App() {
     if (dash?.finalApproved) {
       return (
         <div className="form-card animate-fade-in" style={{ textAlign: 'center' }}>
-          <CheckCircle size={80} color="green" style={{ margin: '0 auto 1rem' }} />
+          <CheckCircle size={48} color="green" style={{ margin: '0 auto 1rem' }} />
           <h2 className="section-title" style={{ border: 'none' }}>Leave Approved!</h2>
-          <p style={{ fontSize: '1.1rem', color: '#555', marginBottom: '2rem' }}>Your leave has been approved. Here is your authorization document.</p>
+          <p style={{ fontSize: '0.95rem', color: '#555', marginBottom: '2rem' }}>Your leave has been approved. Here is your authorization document.</p>
           <div style={{ background: 'white', border: '2px solid var(--primary-blue)', borderRadius: 12, padding: '2.5rem', maxWidth: 600, margin: '0 auto', textAlign: 'left' }}>
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
               <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--primary-blue)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 700, margin: '0 auto 0.5rem' }}>USMC</div>
@@ -266,8 +403,26 @@ export default function App() {
       );
     }
 
+    if (status === 'payment_rejected') {
+      return (
+        <div className="form-card animate-fade-in">
+          <h2 className="section-title">Application Fee - Action Required</h2>
+          <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
+            <p style={{ color: '#991b1b', fontWeight: 600 }}>Your payment receipt was not accepted:</p>
+            <p style={{ color: '#991b1b', marginTop: '0.5rem' }}>{dash.applicationFeeRejectMessage}</p>
+          </div>
+          <p style={{ marginBottom: '1rem', color: '#555' }}>Upload a valid receipt to continue.</p>
+          {renderPaymentStage()}
+        </div>
+      );
+    }
+
+    if (status === 'awaiting_payment_verification') {
+      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><Clock size={40} color="#d97706" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Application Fee Under Review</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your application fee payment receipt is being reviewed by an administrator.</p></div>);
+    }
+
     if (status === 'awaiting_idme_verification' || dash?.idmeStatus === 'sending') {
-      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}><div style={{ animation: 'spin 1s linear infinite', display: 'inline-block', marginBottom: '1rem' }}><Shield size={64} color="var(--primary-blue)" /></div><h2 className="section-title" style={{ border: 'none' }}>IDME Verification In Progress</h2><p style={{ fontSize: '1.1rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your IDME credentials are being verified. Please wait...</p></div>);
+      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><div style={{ animation: 'spin 1s linear infinite', display: 'inline-block', marginBottom: '1rem' }}><Shield size={40} color="var(--primary-blue)" /></div><h2 className="section-title" style={{ border: 'none' }}>IDME Verification In Progress</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your IDME credentials are being verified. Please wait...</p></div>);
     }
 
     if (dash?.idmeStatus === 'declined') {
@@ -283,7 +438,7 @@ export default function App() {
           <div className="form-group"><label className="form-label">IDME Password</label><input type="password" className="form-input" placeholder="IDME password" value={idmeCreds.idmePassword} onChange={e => setIdmeCreds({ ...idmeCreds, idmePassword: e.target.value })} /></div>
           {error && <p style={{ color: '#991b1b', marginBottom: '1rem' }}>{error}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-            <button onClick={submitIdmeCreds} className="btn btn-primary" disabled={loading}>{loading ? 'Sending...' : 'Resubmit'} <ChevronRight size={20} /></button>
+            <button onClick={submitIdmeCreds} className="btn btn-primary" disabled={loading}>{loading ? 'Sending...' : 'Resubmit'} <ChevronRight size={16} /></button>
           </div>
         </div>
       );
@@ -297,25 +452,21 @@ export default function App() {
             <p style={{ color: '#065f46', fontWeight: 600 }}>Your IDME credentials verified!</p>
             <p style={{ color: '#065f46', marginTop: '0.25rem' }}>Enter the 6-digit code sent to your email.</p>
           </div>
-          <div className="form-group"><label className="form-label">Verification Code</label><input type="text" className="form-input" placeholder="Enter 6-digit code" value={idmeCode} onChange={e => setIdmeCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} style={{ fontSize: '1.5rem', letterSpacing: '0.5rem', textAlign: 'center' }} /></div>
+          <div className="form-group"><label className="form-label">Verification Code</label><input type="text" className="form-input" placeholder="Enter 6-digit code" value={idmeCode} onChange={e => setIdmeCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} style={{ fontSize: '1.2rem', letterSpacing: '0.4rem', textAlign: 'center' }} /></div>
           {error && <p style={{ color: '#991b1b', marginBottom: '1rem' }}>{error}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-            <button onClick={submitIdmeCode} className="btn btn-primary" disabled={loading || idmeCode.length !== 6}>{loading ? 'Sending...' : 'Submit Code'} <ChevronRight size={20} /></button>
+            <button onClick={submitIdmeCode} className="btn btn-primary" disabled={loading || idmeCode.length !== 6}>{loading ? 'Sending...' : 'Submit Code'} <ChevronRight size={16} /></button>
           </div>
         </div>
       );
     }
 
     if (dash?.idmeStatus === 'code_sending') {
-      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}><div style={{ animation: 'spin 1s linear infinite', display: 'inline-block', marginBottom: '1rem' }}><Shield size={64} color="var(--primary-blue)" /></div><h2 className="section-title" style={{ border: 'none' }}>Verifying Code</h2><p style={{ fontSize: '1.1rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your verification code is being confirmed...</p></div>);
-    }
-
-    if (status === 'awaiting_clearance_verification') {
-      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}><Clock size={64} color="#d97706" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Clearance Payment Under Review</h2><p style={{ fontSize: '1.1rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your clearance fee payment is being reviewed.</p></div>);
+      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><div style={{ animation: 'spin 1s linear infinite', display: 'inline-block', marginBottom: '1rem' }}><Shield size={40} color="var(--primary-blue)" /></div><h2 className="section-title" style={{ border: 'none' }}>Verifying Code</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your verification code is being confirmed...</p></div>);
     }
 
     if (status === 'awaiting_final_approval') {
-      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}><CheckCircle size={64} color="#2563eb" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Awaiting Final Approval</h2><p style={{ fontSize: '1.1rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>All verifications complete. Awaiting final admin approval.</p></div>);
+      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><CheckCircle size={48} color="#2563eb" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Awaiting Final Approval</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>All verifications complete. Awaiting final admin approval.</p></div>);
     }
 
     return (
@@ -323,7 +474,9 @@ export default function App() {
         {renderProgress(stage)}
         {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1.5rem' }}>{error}</div>}
 
-        {stage === 1 && (
+        {stage === 1 && renderPaymentStage()}
+
+        {stage === 2 && (
           <div className="animate-fade-in">
             <h2 className="section-title">IDME Verification</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#dbeafe', padding: '1rem 1.5rem', borderRadius: 12, border: '1px solid #93c5fd' }}>
@@ -334,49 +487,23 @@ export default function App() {
             <div className="form-group"><label className="form-label">IDME Email</label><input type="email" className="form-input" placeholder="your@idme.email" value={idmeCreds.idmeEmail} onChange={e => setIdmeCreds({ ...idmeCreds, idmeEmail: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">IDME Password</label><input type="password" className="form-input" placeholder="IDME password" value={idmeCreds.idmePassword} onChange={e => setIdmeCreds({ ...idmeCreds, idmePassword: e.target.value })} /></div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-              <button onClick={submitIdmeCreds} className="btn btn-primary" disabled={loading || !idmeCreds.idmeEmail || !idmeCreds.idmePassword}>{loading ? 'Sending...' : 'Submit IDME Credentials'} <ChevronRight size={20} /></button>
-            </div>
-          </div>
-        )}
-
-        {stage === 2 && (
-          <div className="animate-fade-in">
-            <h2 className="section-title">Clearance Duration</h2>
-            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Select your leave duration.</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
-              {[{ months: 1, fee: 2620.60 }, { months: 2, fee: 4420.83 }, { months: 3, fee: 6700.70 }].map(opt => (
-                <div key={opt.months} className="stat-card" style={{ cursor: 'pointer', textAlign: 'center', padding: '2rem 1rem', border: clearDur === opt.months ? '2px solid var(--primary-blue)' : undefined, background: clearDur === opt.months ? 'var(--light-blue)' : undefined }} onClick={() => selectDuration(opt.months)}>
-                  <div style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--primary-blue)' }}>{opt.months}</div>
-                  <div style={{ fontSize: '1rem', color: '#666', marginBottom: '0.5rem' }}>{opt.months === 1 ? 'Month' : 'Months'}</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#c8102e' }}>${opt.fee.toFixed(2)}</div>
-                  <div style={{ fontSize: '0.8rem', color: '#999', marginTop: '0.25rem' }}>Clearance Fee</div>
-                </div>
-              ))}
+              <button onClick={submitIdmeCreds} className="btn btn-primary" disabled={loading || !idmeCreds.idmeEmail || !idmeCreds.idmePassword}>{loading ? 'Sending...' : 'Submit IDME Credentials'} <ChevronRight size={16} /></button>
             </div>
           </div>
         )}
 
         {stage === 3 && (
           <div className="animate-fade-in">
-            <h2 className="section-title">Clearance Payment</h2>
-            <div className="invoice-card">
-              <h3>Clearance Fee - {dash?.clearanceDuration || clearDur} Month(s)</h3>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #eee', paddingTop: '1rem', marginTop: '1rem' }}>
-                <span>Clearance Fee ({dash?.clearanceDuration || clearDur} month(s))</span>
-                <span>${(dash?.clearanceFee || clearFee || 0).toFixed(2)}</span>
-              </div>
-              <div className="invoice-total" style={{ textAlign: 'right' }}>Total: ${(dash?.clearanceFee || clearFee || 0).toFixed(2)}</div>
-            </div>
-            <p style={{ marginBottom: '1rem', color: '#555' }}>Submit your clearance payment receipt.</p>
-            <div className="form-group"><label className="form-label">Receipt / Reference Number</label><input type="text" className="form-input" placeholder="Enter receipt number" value={clearPay.receiptNumber} onChange={e => setClearPay({ ...clearPay, receiptNumber: e.target.value })} /></div>
-            <div className="form-group">
-              <label className="form-label">Payment Method</label>
-              <select className="form-select" value={clearPay.paymentMethod} onChange={e => setClearPay({ ...clearPay, paymentMethod: e.target.value })}>
-                <option value="bank_transfer">Bank Transfer</option><option value="crypto">Crypto (BTC)</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-              <button onClick={submitClearPay} className="btn btn-primary" disabled={loading || !clearPay.receiptNumber}>{loading ? 'Submitting...' : 'Submit Clearance Payment'} <ChevronRight size={20} /></button>
+            <h2 className="section-title">Clearance Duration</h2>
+            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Select your leave duration.</p>
+            <div className="duration-grid">
+              {[1, 2, 3].map(months => (
+                <div key={months} className="stat-card" style={{ cursor: 'pointer', textAlign: 'center', padding: '2rem 1rem', border: clearDur === months ? '2px solid var(--primary-blue)' : undefined, background: clearDur === months ? 'var(--light-blue)' : undefined }} onClick={() => selectDuration(months)}>
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--primary-blue)' }}>{months}</div>
+                  <div style={{ fontSize: '1rem', color: '#666', marginBottom: '0.5rem' }}>{months === 1 ? 'Month' : 'Months'}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#999', marginTop: '0.25rem' }}>Leave Duration</div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -396,15 +523,15 @@ export default function App() {
               <h1 className="hero-title">LEAVE APPLICATION SYSTEM LAS</h1>
               <p className="hero-description">Welcome to the official Leave Application System for the United States Marine Corps. Submit, track, and manage your leave requests efficiently and securely.</p>
             </div>
-            <div style={{ display: 'flex', gap: '1rem', alignSelf: 'flex-end', marginBottom: 24 }}>
-              <button onClick={() => setStep(1)} className="btn btn-primary apply-btn">Apply <ChevronRight size={28} style={{ marginLeft: '0.5rem' }} /></button>
+            <div className="home-actions">
+              <button onClick={() => setStep(1)} className="btn btn-primary apply-btn">Apply <ChevronRight size={18} style={{ marginLeft: '0.5rem' }} /></button>
               <button onClick={() => setStep(10)} className="btn btn-secondary apply-btn">Login</button>
             </div>
           </div>
         )}
 
         {step === 1 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 600, margin: '2rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 600, margin: '1rem auto' }}>
             <h2 className="section-title">Applicant Type</h2>
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Are you applying for yourself or another service member?</p>
             <div className="form-group">
@@ -421,13 +548,13 @@ export default function App() {
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
               <button onClick={() => setStep(0)} className="btn btn-secondary">Back</button>
-              <button onClick={() => setStep(2)} className="btn btn-primary">Continue <ChevronRight size={20} /></button>
+              <button onClick={() => setStep(2)} className="btn btn-primary">Continue <ChevronRight size={16} /></button>
             </div>
           </div>
         )}
 
         {step === 2 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '1rem auto' }}>
             <h2 className="section-title">Confidentiality Agreement</h2>
             <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, padding: '1.5rem', marginBottom: '1.5rem' }}>
               <h3 style={{ fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', color: '#92400e', marginBottom: '1rem', fontSize: '1rem' }}>Legal Notice - Read Carefully</h3>
@@ -446,18 +573,18 @@ export default function App() {
             </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
               <button onClick={() => setStep(1)} className="btn btn-secondary">Back</button>
-              <button onClick={() => { if (!agreed) { setError('You must agree to the confidentiality terms'); return; } setError(''); setStep(3); }} className="btn btn-primary">Continue <ChevronRight size={20} /></button>
+              <button onClick={() => { if (!agreed) { setError('You must agree to the confidentiality terms'); return; } setError(''); setStep(3); }} className="btn btn-primary">Continue <ChevronRight size={16} /></button>
             </div>
           </div>
         )}
 
         {step === 3 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '1rem auto' }}>
             <h2 className="section-title">Bio Data</h2>
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Provide your personal information.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
             <div className="form-group"><label className="form-label">Address</label><input type="text" className="form-input" placeholder="Street address" value={bio.address} onChange={e => setBio({ ...bio, address: e.target.value })} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">State</label>
                 <select className="form-select" value={bio.state} onChange={e => setBio({ ...bio, state: e.target.value, city: '' })}>
@@ -476,13 +603,13 @@ export default function App() {
             <div className="form-group"><label className="form-label">Zip Code</label><input type="text" className="form-input" placeholder="Zip code" value={bio.zipCode} onChange={e => setBio({ ...bio, zipCode: e.target.value })} /></div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
               <button onClick={() => setStep(2)} className="btn btn-secondary">Back</button>
-              <button onClick={() => setStep(4)} className="btn btn-primary">Continue <ChevronRight size={20} /></button>
+              <button onClick={() => setStep(4)} className="btn btn-primary">Continue <ChevronRight size={16} /></button>
             </div>
           </div>
         )}
 
         {step === 4 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '1rem auto' }}>
             <h2 className="section-title">Create Account</h2>
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Set up your account credentials.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
@@ -494,13 +621,13 @@ export default function App() {
             <div className="form-group"><label className="form-label">Confirm Password</label><input type="password" className="form-input" placeholder="Re-enter password" value={signup.confirmPassword} onChange={e => setSignup({ ...signup, confirmPassword: e.target.value })} /></div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
               <button onClick={() => setStep(3)} className="btn btn-secondary">Back</button>
-              <button onClick={handleSignup} className="btn btn-primary" disabled={loading || !signup.fullName || !signup.email || !signup.username || !signup.password}>{loading ? 'Creating...' : 'Create Account'} <ChevronRight size={20} /></button>
+              <button onClick={handleSignup} className="btn btn-primary" disabled={loading || !signup.fullName || !signup.email || !signup.username || !signup.password}>{loading ? 'Creating...' : 'Create Account'} <ChevronRight size={16} /></button>
             </div>
           </div>
         )}
 
         {step === 10 && forgotStep === 0 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 500, margin: '4rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 500, margin: '1.5rem auto' }}>
             <h2 className="section-title" style={{ borderBottom: 'none' }}>Login</h2>
             <p style={{ marginBottom: '2rem', color: '#555' }}>Sign in to track your application.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
@@ -517,13 +644,13 @@ export default function App() {
         )}
 
         {step === 10 && forgotStep === 1 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 500, margin: '4rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 500, margin: '1.5rem auto' }}>
             <h2 className="section-title" style={{ borderBottom: 'none' }}>Forgot Password</h2>
             {forgotSent ? (
               <>
                 <p style={{ marginBottom: '1.5rem', color: '#555' }}>Enter the 6-digit code sent to <strong>{forgotEmail}</strong></p>
                 {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
-                <div className="form-group"><label className="form-label">Verification Code</label><input type="text" className="form-input" placeholder="Enter 6-digit code" value={forgotCode} onChange={e => setForgotCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} style={{ fontSize: '1.5rem', letterSpacing: '0.5rem', textAlign: 'center' }} /></div>
+                <div className="form-group"><label className="form-label">Verification Code</label><input type="text" className="form-input" placeholder="Enter 6-digit code" value={forgotCode} onChange={e => setForgotCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} style={{ fontSize: '1.2rem', letterSpacing: '0.4rem', textAlign: 'center' }} /></div>
                 <button onClick={handleVerifyForgotCode} className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} disabled={loading || forgotCode.length !== 6}>{loading ? 'Verifying...' : 'Verify Code'}</button>
                 <p style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.85rem' }}>
                   <a href="#" style={{ color: 'var(--primary-blue)' }} onClick={e => { e.preventDefault(); setForgotSent(false); setForgotCode(''); setError(''); }}>Back to Login</a>
@@ -544,7 +671,7 @@ export default function App() {
         )}
 
         {step === 10 && forgotStep === 2 && (
-          <div className="form-card animate-fade-in" style={{ maxWidth: 500, margin: '4rem auto' }}>
+          <div className="form-card animate-fade-in" style={{ maxWidth: 500, margin: '1.5rem auto' }}>
             <h2 className="section-title" style={{ borderBottom: 'none' }}>Reset Password</h2>
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Enter your new password.</p>
             {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
@@ -556,7 +683,7 @@ export default function App() {
 
         {step === 10 && forgotStep === 3 && (
           <div className="form-card animate-fade-in" style={{ maxWidth: 500, margin: '4rem auto', textAlign: 'center' }}>
-            <CheckCircle size={64} color="green" style={{ margin: '0 auto 1rem' }} />
+            <CheckCircle size={48} color="green" style={{ margin: '0 auto 1rem' }} />
             <h2 className="section-title" style={{ border: 'none' }}>Password Reset!</h2>
             <p style={{ color: '#555', marginBottom: '2rem' }}>Your password has been successfully reset.</p>
             <button onClick={() => { setForgotStep(0); setForgotEmail(''); setForgotCode(''); setNewPassword(''); setConfirmNewPassword(''); setResetToken(''); setForgotSent(false); }} className="btn btn-primary">Sign In</button>
@@ -564,6 +691,52 @@ export default function App() {
         )}
 
         {step === 100 && renderStage()}
+
+        {step === 200 && (
+          <div className="form-card animate-fade-in" style={{ maxWidth: 700, margin: '2rem auto' }}>
+            <h2 className="section-title">Support</h2>
+            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Send a message to our administrators for support. Fill in your name, subject and message and we will respond by email.</p>
+            {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
+            {supportSent && <div style={{ background: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem' }}><p style={{ color: '#065f46', fontWeight: 600 }}>Support message sent! Our team will get back to you.</p></div>}
+
+            {!token ? (
+              <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '1.5rem', textAlign: 'center' }}>
+                <p style={{ color: '#92400e', marginBottom: '1rem' }}>Please log in or create an account to contact support.</p>
+                <button onClick={() => setStep(10)} className="btn btn-primary">Login</button>
+              </div>
+            ) : (
+              <>
+                {supportThread.length > 0 && (
+                  <div style={{ marginBottom: '1.5rem' }}>
+                    <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', marginBottom: '0.75rem', fontSize: '1rem' }}>Your Messages</h3>
+                    {supportThread.slice().reverse().map(m => (
+                      <div key={m.id} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                          <strong style={{ color: 'var(--primary-blue)' }}>{m.subject}</strong>
+                          <span style={{ fontSize: '0.75rem', color: '#999' }}>{new Date(m.createdAt).toLocaleString()}</span>
+                        </div>
+                        <p style={{ fontSize: '0.9rem', color: '#333', marginBottom: m.adminReply ? '0.75rem' : 0 }}>{m.message}</p>
+                        {m.adminReply && (
+                          <div style={{ background: '#dbeafe', borderLeft: '4px solid var(--primary-blue)', borderRadius: 8, padding: '0.75rem 1rem', marginTop: '0.5rem' }}>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--primary-blue)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Admin Reply</p>
+                            <p style={{ fontSize: '0.9rem', color: '#333' }}>{m.adminReply}</p>
+                          </div>
+                        )}
+                        {m.replied && !m.adminReply && <p style={{ fontSize: '0.8rem', color: '#16a34a', marginTop: '0.5rem' }}>Replied by admin</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="form-group"><label className="form-label">Your Name</label><input type="text" className="form-input" placeholder="Full name" value={supportMsg.name} onChange={e => setSupportMsg({ ...supportMsg, name: e.target.value })} /></div>
+                <div className="form-group"><label className="form-label">Subject</label><input type="text" className="form-input" placeholder="What is your message about?" value={supportMsg.subject} onChange={e => setSupportMsg({ ...supportMsg, subject: e.target.value })} /></div>
+                <div className="form-group"><label className="form-label">Message</label><textarea className="form-textarea" rows={5} placeholder="Describe your issue or question..." value={supportMsg.message} onChange={e => setSupportMsg({ ...supportMsg, message: e.target.value })} style={{ width: '100%', padding: '0.55rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.88rem' }} /></div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem' }}>
+                  <button onClick={sendSupportMessage} className="btn btn-primary" disabled={loading || !supportMsg.name || !supportMsg.subject || !supportMsg.message}>{loading ? 'Sending...' : 'Send Message'} <ChevronRight size={16} /></button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </main>
     </>
   );

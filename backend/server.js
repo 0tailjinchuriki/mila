@@ -17,7 +17,7 @@ app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3002', 'https://milafront.onrender.com'],
   credentials: true
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false }));
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Too many attempts, try again later' } });
