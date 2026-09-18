@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3001;
 
 app.use(helmet());
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3002', 'https://milafront.onrender.com', 'https://usmarinelas.onrender.com', 'https://adminlas.onrender.com'],
+  origin: ['http://localhost:5173', 'http://localhost:3002', 'https://milafront.onrender.com', 'https://usmarinelas.onrender.com', 'https://adminlas.onrender.com', 'https://www.usmarinelas.site', 'https://usmarinelas.site', 'https://api.usmarinelas.site'],
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
