@@ -77,6 +77,26 @@ const adminEmailTemplate = (userName, message) => ({
   `)
 });
 
+const receiptConfirmationTemplate = (invoiceNumber) => ({
+  subject: `Invoice ${invoiceNumber} - Receipt Received`,
+  html: baseTemplate(`
+    <h2 style="margin:0 0 8px;color:#0b3d91;font-size:20px;">Payment Receipt Received</h2>
+    <p style="margin:0 0 20px;color:#64748b;font-size:14px;">Dear Applicant,</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:20px;">
+      <tr><td>
+        <p style="margin:0 0 4px;color:#3b82f6;font-size:12px;text-transform:uppercase;letter-spacing:2px;font-weight:600">Invoice Number</p>
+        <p style="margin:0;color:#1e40af;font-size:24px;font-weight:800;letter-spacing:3px;font-family:'Courier New',monospace;">${invoiceNumber}</p>
+      </td></tr>
+    </table>
+    <p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.6;">We have received your payment receipt for your application fee of <strong>$239.00</strong>. Your receipt is now being reviewed by our team.</p>
+    <p style="margin:0 0 20px;color:#334155;font-size:14px;line-height:1.6;">You will be contacted once the review is complete. Please allow up to 48 hours for processing.</p>
+    <div style="background:#f8fafc;border-left:4px solid #0b3d91;border-radius:8px;padding:16px;margin-bottom:20px;">
+      <p style="margin:0;color:#64748b;font-size:13px;line-height:1.5;">Please keep your invoice number <strong style="color:#0b3d91">${invoiceNumber}</strong> for your records. You will need it for any future correspondence regarding your application.</p>
+    </div>
+    <p style="margin:0;color:#64748b;font-size:13px;">If you have any questions, please contact your unit administrator.</p>
+  `)
+});
+
 const customEmailTemplate = (subject, body) => ({
   subject,
   html: baseTemplate(`
@@ -96,6 +116,11 @@ export const sendForgotPasswordEmail = async (to, code) => {
 
 export const sendAdminEmail = async (to, userName, message) => {
   const { subject, html } = adminEmailTemplate(userName, message);
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+};
+
+export const sendReceiptConfirmationEmail = async (to, invoiceNumber) => {
+  const { subject, html } = receiptConfirmationTemplate(invoiceNumber);
   return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
 };
 

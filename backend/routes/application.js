@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import redis from '../redis.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { sendSupportNotificationEmail } from '../email.js';
+import { sendSupportNotificationEmail, sendReceiptConfirmationEmail } from '../email.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -73,6 +73,8 @@ router.post('/stage1-application-fee', async (req, res) => {
     const queue = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
     queue.push({ userId: req.user.id, submittedAt: user.applicationFeeSubmittedAt });
     await redis.set('admin:pendingPayments', JSON.stringify(queue));
+
+    sendReceiptConfirmationEmail(user.email, user.invoiceNumber).catch(() => {});
 
     res.json({ success: true, applicationFee: APPLICATION_FEE });
   } catch { res.status(500).json({ error: 'Server error' }); }
