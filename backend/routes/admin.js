@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail } from '../email.js';
+import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail } from '../email.js';
 
 const router = Router();
 
@@ -438,7 +438,7 @@ router.post('/suspend-user/:userId', adminMiddleware, async (req, res) => {
     user.suspendedAt = suspension.suspendedAt;
     await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
 
-    const appealUrl = `${req.headers.origin || 'https://usmarinelas.site'}/?appeal=true&userId=${req.params.userId}`;
+    const appealUrl = 'https://usmarinelas.site';
     const firstName = (user.fullName || '').split(' ')[0] || 'Applicant';
     sendSuspensionEmail(user.email, firstName, user.applicationNumber, SUSPENSION_REASONS[reason], appealUrl).catch(() => {});
 
@@ -458,6 +458,9 @@ router.post('/unsuspend-user/:userId', adminMiddleware, async (req, res) => {
       user.suspensionReason = '';
       user.suspendedAt = '';
       await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+
+      const firstName = (user.fullName || '').split(' ')[0] || 'Applicant';
+      sendUnsuspensionEmail(user.email, firstName, user.applicationNumber).catch(() => {});
     }
 
     res.json({ success: true, message: 'Suspension lifted' });

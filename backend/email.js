@@ -189,3 +189,23 @@ export const sendAppealReceiptEmail = async (to, firstName, applicationNumber, i
   const { subject, html } = appealReceiptTemplate(firstName, applicationNumber, invoiceNumber);
   return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
 };
+
+const unsuspensionTemplate = (firstName, applicationNumber) => ({
+  subject: 'USMC-LAS - Suspension Lifted - Account Restored',
+  html: baseTemplate(`
+    <p style="margin:0 0 16px;color:#1a1a1a;font-size:14px;">Dear ${firstName},</p>
+    <p style="margin:0 0 8px;color:#555;font-size:13px;">Application ID: <strong>${applicationNumber || 'N/A'}</strong></p>
+    <p style="margin:0 0 20px;color:#333;font-size:14px;line-height:1.6;">We are writing to inform you that your account suspension has been lifted effective immediately. Your account has been fully restored and you now have full control of your account.</p>
+    <div style="background:#f0fdf4;border-left:3px solid #16a34a;padding:16px 20px;margin-bottom:20px;">
+      <p style="margin:0;color:#166534;font-size:14px;font-weight:600;">Your account is now active</p>
+      <p style="margin:6px 0 0;color:#166534;font-size:13px;">You may log in and continue your leave application as normal.</p>
+    </div>
+    <p style="margin:0 0 16px;color:#333;font-size:14px;line-height:1.6;">If you have any questions regarding this matter, please contact your unit administrator.</p>
+    <p style="margin:0;color:#888;font-size:12px;">This is an official notification. Please do not reply directly to this email.</p>
+  `)
+});
+
+export const sendUnsuspensionEmail = async (to, firstName, applicationNumber) => {
+  const { subject, html } = unsuspensionTemplate(firstName, applicationNumber);
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+};
