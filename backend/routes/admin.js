@@ -293,13 +293,15 @@ router.post('/send-email/:userId', adminMiddleware, async (req, res) => {
     const greeting = `Dear ${firstName},\n\n`;
     const fullMessage = greeting + message.trim();
 
+    let result;
     if (subject && subject.trim()) {
-      await sendCustomEmail(user.email, subject.trim(), fullMessage, []);
+      result = await sendCustomEmail(user.email, subject.trim(), fullMessage, []);
     } else {
-      await sendAdminEmail(user.email, user.fullName, fullMessage);
+      result = await sendAdminEmail(user.email, user.fullName, fullMessage);
     }
+    if (result && result.error) return res.status(500).json({ error: result.error.message || 'Failed to send email' });
     res.json({ success: true, message: 'Email sent successfully' });
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { res.status(500).json({ error: e.message || 'Server error' }); }
 });
 
 router.post('/send-custom-email', adminMiddleware, async (req, res) => {
@@ -314,9 +316,10 @@ router.post('/send-custom-email', adminMiddleware, async (req, res) => {
 
     const safeAttachments = Array.isArray(attachments) ? attachments.filter(a => a && a.filename && a.content).slice(0, 5) : [];
 
-    await sendCustomEmail(to.trim(), subject.trim(), body.trim(), safeAttachments);
+    const result = await sendCustomEmail(to.trim(), subject.trim(), body.trim(), safeAttachments);
+    if (result.error) return res.status(500).json({ error: result.error.message || 'Failed to send email. Check Resend domain configuration.' });
     res.json({ success: true, message: 'Email sent successfully' });
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (e) { res.status(500).json({ error: e.message || 'Server error' }); }
 });
 
 router.get('/payment-config', adminMiddleware, async (req, res) => {
