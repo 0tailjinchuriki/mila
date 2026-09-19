@@ -5,7 +5,7 @@ dotenv.config();
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM_EMAIL = 'USMC-LAS <onboarding@resend.dev>';
+const FROM_EMAIL = 'USMC-LAS <info@usmarinelas.site>';
 const LOGO_URL = 'https://usmarinelas.site/usmc.png';
 
 const baseTemplate = (content) => `
