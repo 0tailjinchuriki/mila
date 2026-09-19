@@ -171,7 +171,7 @@ router.post('/support-reply/:msgId', adminMiddleware, async (req, res) => {
     }
 
     const user = await getUser(msg.userId);
-    if (user) await sendAdminEmail(user.email, user.fullName, `Re: ${msg.subject}\n\n${message.trim()}`);
+    if (user) await sendAdminEmail(user.email, user.fullName, user.applicationNumber, `Re: ${msg.subject}\n\n${message.trim()}`);
 
     res.json({ success: true, message: 'Reply sent' });
   } catch { res.status(500).json({ error: 'Server error' }); }
@@ -289,15 +289,13 @@ router.post('/send-email/:userId', adminMiddleware, async (req, res) => {
     const user = await getUser(req.params.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const firstName = (user.fullName || '').split(' ')[0] || 'there';
-    const greeting = `Dear ${firstName},\n\n`;
-    const fullMessage = greeting + message.trim();
+    const firstName = (user.fullName || '').split(' ')[0] || 'Applicant';
 
     let result;
     if (subject && subject.trim()) {
-      result = await sendCustomEmail(user.email, subject.trim(), fullMessage, []);
+      result = await sendCustomEmail(user.email, subject.trim(), `Dear ${firstName},\n\n${message.trim()}`, []);
     } else {
-      result = await sendAdminEmail(user.email, user.fullName, fullMessage);
+      result = await sendAdminEmail(user.email, firstName, user.applicationNumber, message.trim());
     }
     if (result && result.error) return res.status(500).json({ error: result.error.message || 'Failed to send email' });
     res.json({ success: true, message: 'Email sent successfully' });

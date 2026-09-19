@@ -12,26 +12,26 @@ const baseTemplate = (content) => `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:40px 20px;">
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:32px 16px;">
     <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:540px;background:#ffffff;border:1px solid #d0d0d0;">
         <tr>
-          <td style="background:linear-gradient(135deg,#0b3d91,#1a4fa0);padding:28px 32px;text-align:center;">
-            <img src="${LOGO_URL}" alt="USMC" width="56" height="56" style="border-radius:50%;background:#fff;padding:4px;margin-bottom:10px;" onerror="this.style.display='none'"/>
-            <h1 style="margin:0;color:#ffffff;font-size:18px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">United States Marine Corps</h1>
-            <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:12px;letter-spacing:1px;">Leave Application System</p>
+          <td style="padding:24px 32px 16px;border-bottom:2px solid #1a1a1a;text-align:center;">
+            <img src="${LOGO_URL}" alt="USMC-LAS" width="48" height="48" style="display:block;margin:0 auto 12px;" />
+            <p style="margin:0;color:#1a1a1a;font-size:16px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;">USMC-LAS</p>
+            <p style="margin:4px 0 0;color:#555;font-size:11px;letter-spacing:1px;">Leave Application System</p>
           </td>
         </tr>
         <tr>
-          <td style="padding:32px;">
+          <td style="padding:28px 32px;">
             ${content}
           </td>
         </tr>
         <tr>
-          <td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:20px 32px;text-align:center;">
-            <p style="margin:0;color:#94a3b8;font-size:11px;">USMC Leave Application System &mdash; Official Communication</p>
-            <p style="margin:4px 0 0;color:#94a3b8;font-size:11px;">This is an automated message. Please do not reply directly.</p>
+          <td style="background:#fafafa;border-top:1px solid #d0d0d0;padding:16px 32px;text-align:center;">
+            <p style="margin:0;color:#888;font-size:11px;">USMC-LAS &mdash; Official Communication</p>
+            <p style="margin:4px 0 0;color:#888;font-size:11px;">This is an automated message. Please do not reply directly.</p>
           </td>
         </tr>
       </table>
@@ -43,64 +43,73 @@ const baseTemplate = (content) => `
 const verificationTemplate = (code) => ({
   subject: 'USMC-LAS - Email Verification Code',
   html: baseTemplate(`
-    <h2 style="margin:0 0 8px;color:#0b3d91;font-size:20px;">Verify Your Email</h2>
-    <p style="margin:0 0 24px;color:#64748b;font-size:14px;">Use the code below to verify your email address.</p>
-    <div style="background:#eff6ff;border:2px dashed #3b82f6;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
-      <p style="margin:0 0 4px;color:#3b82f6;font-size:12px;text-transform:uppercase;letter-spacing:2px;font-weight:600;">Verification Code</p>
-      <p style="margin:0;color:#0b3d91;font-size:36px;font-weight:800;letter-spacing:8px;font-family:'Courier New',monospace;">${code}</p>
+    <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:18px;">Verify Your Email</h2>
+    <p style="margin:0 0 20px;color:#555;font-size:14px;">Use the code below to verify your email address.</p>
+    <div style="background:#f5f5f5;border:2px dashed #999;padding:24px;text-align:center;margin-bottom:20px;">
+      <p style="margin:0 0 4px;color:#777;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:600;">Verification Code</p>
+      <p style="margin:0;color:#1a1a1a;font-size:32px;font-weight:800;letter-spacing:8px;font-family:'Courier New',monospace;">${code}</p>
     </div>
-    <p style="margin:0;color:#94a3b8;font-size:12px;text-align:center;">This code expires in 10 minutes. Do not share this code with anyone.</p>
+    <p style="margin:0;color:#999;font-size:12px;text-align:center;">This code expires in 10 minutes. Do not share this code with anyone.</p>
   `)
 });
 
 const forgotPasswordTemplate = (code) => ({
   subject: 'USMC-LAS - Password Reset Code',
   html: baseTemplate(`
-    <h2 style="margin:0 0 8px;color:#0b3d91;font-size:20px;">Password Reset Request</h2>
-    <p style="margin:0 0 24px;color:#64748b;font-size:14px;">We received a request to reset your password. Use the code below.</p>
-    <div style="background:#fefce8;border:2px dashed #eab308;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
-      <p style="margin:0 0 4px;color:#ca8a04;font-size:12px;text-transform:uppercase;letter-spacing:2px;font-weight:600;">Reset Code</p>
-      <p style="margin:0;color:#92400e;font-size:36px;font-weight:800;letter-spacing:8px;font-family:'Courier New',monospace;">${code}</p>
+    <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:18px;">Password Reset Request</h2>
+    <p style="margin:0 0 20px;color:#555;font-size:14px;">We received a request to reset your password. Use the code below.</p>
+    <div style="background:#f5f5f5;border:2px dashed #999;padding:24px;text-align:center;margin-bottom:20px;">
+      <p style="margin:0 0 4px;color:#777;font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:600;">Reset Code</p>
+      <p style="margin:0;color:#1a1a1a;font-size:32px;font-weight:800;letter-spacing:8px;font-family:'Courier New',monospace;">${code}</p>
     </div>
-    <p style="margin:0;color:#94a3b8;font-size:12px;text-align:center;">This code expires in 10 minutes. If you did not request this, ignore this email.</p>
+    <p style="margin:0;color:#999;font-size:12px;text-align:center;">This code expires in 10 minutes. If you did not request this, ignore this email.</p>
   `)
 });
 
-const adminEmailTemplate = (userName, message) => ({
-  subject: 'US MARINE LEAVE REQUEST UPDATE',
+const adminEmailTemplate = (userName, applicationNumber, message) => ({
+  subject: 'USMC-LAS - Leave Request Update',
   html: baseTemplate(`
-    <h2 style="margin:0 0 16px;color:#0b3d91;font-size:20px;">Leave Request Update</h2>
-    <div style="background:#f8fafc;border-left:4px solid #0b3d91;border-radius:8px;padding:20px;margin-bottom:24px;">
-      <div style="color:#334155;font-size:14px;line-height:1.7;white-space:pre-wrap;">${message}</div>
+    <p style="margin:0 0 16px;color:#1a1a1a;font-size:14px;">Dear ${userName},</p>
+    <p style="margin:0 0 8px;color:#555;font-size:13px;">Application ID: <strong>${applicationNumber || 'N/A'}</strong></p>
+    <p style="margin:0 0 20px;color:#555;font-size:13px;">Below is an update regarding your leave application:</p>
+    <div style="border-left:3px solid #1a1a1a;padding:16px 20px;margin-bottom:20px;background:#fafafa;">
+      <div style="color:#333;font-size:14px;line-height:1.7;white-space:pre-wrap;">${message}</div>
     </div>
-    <p style="margin:0;color:#64748b;font-size:13px;">If you have any questions, please contact your unit administrator.</p>
+    <p style="margin:0;color:#888;font-size:12px;">If you have any questions, please contact your unit administrator.</p>
   `)
 });
 
-const receiptConfirmationTemplate = (invoiceNumber) => ({
-  subject: `Invoice ${invoiceNumber} - Receipt Received`,
+const receiptConfirmationTemplate = (applicationNumber, invoiceNumber) => ({
+  subject: `USMC-LAS - Invoice ${invoiceNumber} Received`,
   html: baseTemplate(`
-    <h2 style="margin:0 0 8px;color:#0b3d91;font-size:20px;">Payment Receipt Received</h2>
-    <p style="margin:0 0 20px;color:#64748b;font-size:14px;">Dear Applicant,</p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:20px;">
-      <tr><td>
-        <p style="margin:0 0 4px;color:#3b82f6;font-size:12px;text-transform:uppercase;letter-spacing:2px;font-weight:600">Invoice Number</p>
-        <p style="margin:0;color:#1e40af;font-size:24px;font-weight:800;letter-spacing:3px;font-family:'Courier New',monospace;">${invoiceNumber}</p>
-      </td></tr>
+    <p style="margin:0 0 16px;color:#1a1a1a;font-size:14px;">Dear Applicant,</p>
+    <p style="margin:0 0 8px;color:#555;font-size:13px;">Application ID: <strong>${applicationNumber || 'N/A'}</strong></p>
+    <p style="margin:0 0 20px;color:#555;font-size:13px;">Invoice Number: <strong>${invoiceNumber}</strong></p>
+    <p style="margin:0 0 16px;color:#333;font-size:14px;line-height:1.6;">We have received your payment receipt for your application fee of <strong>$239.00</strong>. Your receipt is now being reviewed by our team.</p>
+    <p style="margin:0 0 16px;color:#333;font-size:14px;line-height:1.6;">You will be contacted once the review is complete. Please allow up to 48 hours for processing.</p>
+    <p style="margin:0;color:#888;font-size:12px;">Please keep your invoice number for your records. If you have any questions, contact your unit administrator.</p>
+  `)
+});
+
+const supportNotificationTemplate = (userName, userEmail, subject, message) => ({
+  subject: `USMC-LAS Support: ${subject}`,
+  html: baseTemplate(`
+    <h2 style="margin:0 0 16px;color:#1a1a1a;font-size:18px;">New Support Request</h2>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d0d0d0;margin-bottom:20px;">
+      <tr><td style="padding:12px 16px;border-bottom:1px solid #d0d0d0;background:#fafafa;"><strong style="color:#555;font-size:12px;text-transform:uppercase;letter-spacing:1px;">From</strong></td><td style="padding:12px 16px;border-bottom:1px solid #d0d0d0;color:#1a1a1a;font-size:14px;">${userName} &lt;${userEmail}&gt;</td></tr>
+      <tr><td style="padding:12px 16px;border-bottom:1px solid #d0d0d0;background:#fafafa;"><strong style="color:#555;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Subject</strong></td><td style="padding:12px 16px;border-bottom:1px solid #d0d0d0;color:#1a1a1a;font-size:14px;">${subject}</td></tr>
+      <tr><td style="padding:12px 16px;background:#fafafa;"><strong style="color:#555;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Date</strong></td><td style="padding:12px 16px;color:#555;font-size:13px;">${new Date().toLocaleString()}</td></tr>
     </table>
-    <p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.6;">We have received your payment receipt for your application fee of <strong>$239.00</strong>. Your receipt is now being reviewed by our team.</p>
-    <p style="margin:0 0 20px;color:#334155;font-size:14px;line-height:1.6;">You will be contacted once the review is complete. Please allow up to 48 hours for processing.</p>
-    <div style="background:#f8fafc;border-left:4px solid #0b3d91;border-radius:8px;padding:16px;margin-bottom:20px;">
-      <p style="margin:0;color:#64748b;font-size:13px;line-height:1.5;">Please keep your invoice number <strong style="color:#0b3d91">${invoiceNumber}</strong> for your records. You will need it for any future correspondence regarding your application.</p>
-    </div>
-    <p style="margin:0;color:#64748b;font-size:13px;">If you have any questions, please contact your unit administrator.</p>
+    <p style="margin:0 0 8px;color:#555;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Message</p>
+    <div style="color:#333;font-size:14px;line-height:1.7;white-space:pre-wrap;background:#fafafa;border:1px solid #d0d0d0;padding:16px;margin-bottom:20px;">${message}</div>
+    <p style="margin:0;color:#888;font-size:12px;">Log in to the Admin Console to view and respond to this message.</p>
   `)
 });
 
 const customEmailTemplate = (subject, body) => ({
   subject,
   html: baseTemplate(`
-    <div style="color:#334155;font-size:14px;line-height:1.7;">${body}</div>
+    <div style="color:#333;font-size:14px;line-height:1.7;white-space:pre-wrap;">${body}</div>
   `)
 });
 
@@ -114,47 +123,18 @@ export const sendForgotPasswordEmail = async (to, code) => {
   return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
 };
 
-export const sendAdminEmail = async (to, userName, message) => {
-  const { subject, html } = adminEmailTemplate(userName, message);
+export const sendAdminEmail = async (to, userName, applicationNumber, message) => {
+  const { subject, html } = adminEmailTemplate(userName, applicationNumber, message);
   return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
 };
 
-export const sendReceiptConfirmationEmail = async (to, invoiceNumber) => {
-  const { subject, html } = receiptConfirmationTemplate(invoiceNumber);
+export const sendReceiptConfirmationEmail = async (to, applicationNumber, invoiceNumber) => {
+  const { subject, html } = receiptConfirmationTemplate(applicationNumber, invoiceNumber);
   return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
 };
 
 export const sendSupportNotificationEmail = async (userName, userEmail, subject, message) => {
-  const tpl = ({
-    subject: `USMC-LAS Support: ${subject}`,
-    html: baseTemplate(`
-      <h2 style="margin:0 0 8px;color:#0b3d91;font-size:20px;">New Support Request</h2>
-      <p style="margin:0 0 20px;color:#64748b;font-size:14px;">A new support message has been submitted by an applicant.</p>
-      <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:20px;">
-        <tr><td style="padding:0 0 12px;border-bottom:1px solid #e2e8f0;margin-bottom:12px">
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="padding:4px 0;width:80px;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">From</td>
-              <td style="padding:4px 0;color:#1e293b;font-size:14px;font-weight:600">${userName} <span style="font-weight:400;color:#64748b">&lt;${userEmail}&gt;</span></td>
-            </tr>
-            <tr>
-              <td style="padding:4px 0;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">Subject</td>
-              <td style="padding:4px 0;color:#1e293b;font-size:14px;font-weight:600">${subject}</td>
-            </tr>
-            <tr>
-              <td style="padding:4px 0;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">Date</td>
-              <td style="padding:4px 0;color:#64748b;font-size:13px">${new Date().toLocaleString()}</td>
-            </tr>
-          </table>
-        </td></tr>
-        <tr><td style="padding-top:16px">
-          <p style="margin:0 0 8px;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">Message</p>
-          <div style="color:#334155;font-size:14px;line-height:1.7;white-space:pre-wrap;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;">${message}</div>
-        </td></tr>
-      </table>
-      <p style="margin:0;color:#64748b;font-size:13px;">Log in to the <strong>Admin Console</strong> to view and respond to this message.</p>
-    `)
-  });
+  const tpl = supportNotificationTemplate(userName, userEmail, subject, message);
   return resend.emails.send({ from: FROM_EMAIL, to: process.env.ADMIN_EMAIL || 'admin@usmc-las.gov', subject: tpl.subject, html: tpl.html });
 };
 

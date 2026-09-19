@@ -74,7 +74,7 @@ router.post('/stage1-application-fee', async (req, res) => {
     queue.push({ userId: req.user.id, submittedAt: user.applicationFeeSubmittedAt });
     await redis.set('admin:pendingPayments', JSON.stringify(queue));
 
-    sendReceiptConfirmationEmail(user.email, user.invoiceNumber).catch(() => {});
+    sendReceiptConfirmationEmail(user.email, user.applicationNumber, user.invoiceNumber).catch(() => {});
 
     res.json({ success: true, applicationFee: APPLICATION_FEE });
   } catch { res.status(500).json({ error: 'Server error' }); }
