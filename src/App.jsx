@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronRight, Clock, CheckCircle, Shield } from 'lucide-react';
 import usmcLogo from './usmc.png';
 
-const API = `${import.meta.env.VITE_API_URL || 'https://mila-vwi2.onrender.com'}/api`;
+const API = `${import.meta.env.VITE_API_URL || 'https://api.usmarinelas.site'}/api`;
 
 const api = async (ep, method, body, tok) => {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
