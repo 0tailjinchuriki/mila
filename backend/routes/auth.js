@@ -47,10 +47,18 @@ router.post('/signup', async (req, res) => {
     }
 
     const existingEmail = await redis.get(`email:${email}`);
-    if (existingEmail) return res.status(400).json({ error: 'Email already registered' });
+    if (existingEmail) {
+      const emailOwner = await redis.get(`user:${existingEmail}`);
+      if (emailOwner) return res.status(400).json({ error: 'Email already registered' });
+      await redis.del(`email:${email}`);
+    }
 
     const existingUser = await redis.get(`username:${username}`);
-    if (existingUser) return res.status(400).json({ error: 'Username already taken' });
+    if (existingUser) {
+      const userRecord = await redis.get(`user:${existingUser}`);
+      if (userRecord) return res.status(400).json({ error: 'Username already taken' });
+      await redis.del(`username:${username}`);
+    }
 
     const hashedPassword = await bcrypt.hash(password, 12);
     const userId = uuidv4();
@@ -72,8 +80,11 @@ router.post('/signup', async (req, res) => {
     };
 
     await redis.set(`user:${userId}`, JSON.stringify(user));
-    await redis.set(`email:${email}`, userId);
-    await redis.set(`username:${username}`, userId);
+
+    await Promise.all([
+      redis.set(`email:${email}`, userId),
+      redis.set(`username:${username}`, userId),
+    ]);
 
     const allUsers = JSON.parse(await redis.get('all:userIds') || '[]');
     allUsers.push(userId);
