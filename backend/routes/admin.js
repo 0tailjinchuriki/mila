@@ -289,10 +289,14 @@ router.post('/send-email/:userId', adminMiddleware, async (req, res) => {
     const user = await getUser(req.params.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    const firstName = (user.fullName || '').split(' ')[0] || 'there';
+    const greeting = `Dear ${firstName},\n\n`;
+    const fullMessage = greeting + message.trim();
+
     if (subject && subject.trim()) {
-      await sendCustomEmail(user.email, subject.trim(), message.trim(), []);
+      await sendCustomEmail(user.email, subject.trim(), fullMessage, []);
     } else {
-      await sendAdminEmail(user.email, user.fullName, message.trim());
+      await sendAdminEmail(user.email, user.fullName, fullMessage);
     }
     res.json({ success: true, message: 'Email sent successfully' });
   } catch { res.status(500).json({ error: 'Server error' }); }

@@ -69,9 +69,7 @@ const forgotPasswordTemplate = (code) => ({
 const adminEmailTemplate = (userName, message) => ({
   subject: 'US MARINE LEAVE REQUEST UPDATE',
   html: baseTemplate(`
-    <h2 style="margin:0 0 8px;color:#0b3d91;font-size:20px;">Leave Request Update</h2>
-    <p style="margin:0 0 4px;color:#64748b;font-size:14px;">Dear <strong>${userName}</strong>,</p>
-    <p style="margin:0 0 20px;color:#64748b;font-size:14px;">You have received an update regarding your leave application:</p>
+    <h2 style="margin:0 0 16px;color:#0b3d91;font-size:20px;">Leave Request Update</h2>
     <div style="background:#f8fafc;border-left:4px solid #0b3d91;border-radius:8px;padding:20px;margin-bottom:24px;">
       <div style="color:#334155;font-size:14px;line-height:1.7;white-space:pre-wrap;">${message}</div>
     </div>
