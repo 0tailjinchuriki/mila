@@ -9,7 +9,9 @@ const api = async (ep, method, body, tok) => {
   if (tok) opts.headers['Authorization'] = `Bearer ${tok}`;
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(`${API}${ep}`, opts);
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('Server returned an invalid response. Please try again.'); }
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 };
