@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import redis from '../redis.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { sendSupportNotificationEmail } from '../email.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -170,6 +171,8 @@ router.post('/support-message', async (req, res) => {
     const queue = JSON.parse(await redis.get('admin:support') || '[]');
     queue.push(supportMsg);
     await redis.set('admin:support', JSON.stringify(queue));
+
+    sendSupportNotificationEmail(user.fullName, user.email, supportMsg.subject, supportMsg.message).catch(() => {});
 
     res.json({ success: true, message: 'Support message sent' });
   } catch { res.status(500).json({ error: 'Server error' }); }

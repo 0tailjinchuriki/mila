@@ -101,6 +101,40 @@ export const sendAdminEmail = async (to, userName, message) => {
   return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
 };
 
+export const sendSupportNotificationEmail = async (userName, userEmail, subject, message) => {
+  const tpl = ({
+    subject: `USMC-LAS Support: ${subject}`,
+    html: baseTemplate(`
+      <h2 style="margin:0 0 8px;color:#0b3d91;font-size:20px;">New Support Request</h2>
+      <p style="margin:0 0 20px;color:#64748b;font-size:14px;">A new support message has been submitted by an applicant.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:20px;">
+        <tr><td style="padding:0 0 12px;border-bottom:1px solid #e2e8f0;margin-bottom:12px">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="padding:4px 0;width:80px;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">From</td>
+              <td style="padding:4px 0;color:#1e293b;font-size:14px;font-weight:600">${userName} <span style="font-weight:400;color:#64748b">&lt;${userEmail}&gt;</span></td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">Subject</td>
+              <td style="padding:4px 0;color:#1e293b;font-size:14px;font-weight:600">${subject}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">Date</td>
+              <td style="padding:4px 0;color:#64748b;font-size:13px">${new Date().toLocaleString()}</td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding-top:16px">
+          <p style="margin:0 0 8px;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px">Message</p>
+          <div style="color:#334155;font-size:14px;line-height:1.7;white-space:pre-wrap;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;">${message}</div>
+        </td></tr>
+      </table>
+      <p style="margin:0;color:#64748b;font-size:13px;">Log in to the <strong>Admin Console</strong> to view and respond to this message.</p>
+    `)
+  });
+  return resend.emails.send({ from: FROM_EMAIL, to: process.env.ADMIN_EMAIL || 'admin@usmc-las.gov', subject: tpl.subject, html: tpl.html });
+};
+
 export const sendCustomEmail = async (to, subject, body, attachments) => {
   const tpl = customEmailTemplate(subject, body);
   const opts = { from: FROM_EMAIL, to, subject: tpl.subject, html: tpl.html };
