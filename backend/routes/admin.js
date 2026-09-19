@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendAdminEmail, sendCustomEmail } from '../email.js';
+import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail } from '../email.js';
 
 const router = Router();
 
@@ -377,6 +377,99 @@ router.delete('/users/:userId', adminMiddleware, async (req, res) => {
     await redis.set('all:userIds', JSON.stringify(allUserIds));
 
     res.json({ success: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+const SUSPENSION_REASONS = {
+  multiple_accounts: 'Multiple accounts detected',
+  invalid_id: 'Invalid ID',
+  idme_failed: 'IDME verification failed',
+  unauthorized_disclosure: 'Unauthorized disclosure'
+};
+
+const SUSPENSION_MESSAGES = {
+  multiple_accounts: 'We have detected that you are operating multiple accounts, which is a violation of our terms of service.',
+  invalid_id: 'Your identification document was rejected during the verification process.',
+  idme_failed: 'Your IDME verification has failed after multiple attempts.',
+  unauthorized_disclosure: 'We discovered that you disclosed the process of this application to unauthorized persons, therefore you were banned. To lift this ban, you will have to pay a clearance fee of $499 to lift your suspension and avoid legal issues with our legal department.'
+};
+
+router.get('/suspended-users', adminMiddleware, async (req, res) => {
+  try {
+    const suspended = JSON.parse(await redis.get('admin:suspended') || '[]');
+    const users = [];
+    for (const s of suspended) {
+      const user = await getUser(s.userId);
+      if (user) {
+        users.push({ ...s, fullName: user.fullName, email: user.email, username: user.username, applicationNumber: user.applicationNumber });
+      }
+    }
+    res.json({ suspended: users });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/suspend-user/:userId', adminMiddleware, async (req, res) => {
+  try {
+    const { reason, customMessage } = req.body;
+    if (!reason || !SUSPENSION_REASONS[reason]) return res.status(400).json({ error: 'Valid reason is required' });
+
+    const user = await getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    let suspended = JSON.parse(await redis.get('admin:suspended') || '[]');
+    if (suspended.find(s => s.userId === req.params.userId)) return res.status(400).json({ error: 'User is already suspended' });
+
+    const suspension = {
+      userId: req.params.userId,
+      reason,
+      reasonLabel: SUSPENSION_REASONS[reason],
+      message: customMessage || SUSPENSION_MESSAGES[reason] || '',
+      suspendedAt: new Date().toISOString(),
+      appealReceipts: [],
+      appealStatus: 'pending',
+      clearanceFeePaid: false
+    };
+
+    suspended.push(suspension);
+    await redis.set('admin:suspended', JSON.stringify(suspended));
+
+    user.suspended = true;
+    user.suspensionReason = reason;
+    user.suspendedAt = suspension.suspendedAt;
+    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+
+    const appealUrl = `${req.headers.origin || 'https://usmarinelas.site'}/?appeal=true&userId=${req.params.userId}`;
+    const firstName = (user.fullName || '').split(' ')[0] || 'Applicant';
+    sendSuspensionEmail(user.email, firstName, user.applicationNumber, SUSPENSION_REASONS[reason], appealUrl).catch(() => {});
+
+    res.json({ success: true, message: 'User suspended' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/unsuspend-user/:userId', adminMiddleware, async (req, res) => {
+  try {
+    let suspended = JSON.parse(await redis.get('admin:suspended') || '[]');
+    suspended = suspended.filter(s => s.userId !== req.params.userId);
+    await redis.set('admin:suspended', JSON.stringify(suspended));
+
+    const user = await getUser(req.params.userId);
+    if (user) {
+      user.suspended = false;
+      user.suspensionReason = '';
+      user.suspendedAt = '';
+      await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+    }
+
+    res.json({ success: true, message: 'Suspension lifted' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.get('/suspension/:userId', adminMiddleware, async (req, res) => {
+  try {
+    const suspended = JSON.parse(await redis.get('admin:suspended') || '[]');
+    const suspension = suspended.find(s => s.userId === req.params.userId);
+    if (!suspension) return res.status(404).json({ error: 'No suspension found' });
+    res.json({ suspension });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 

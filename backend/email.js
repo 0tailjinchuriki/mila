@@ -149,3 +149,43 @@ export const sendCustomEmail = async (to, subject, body, attachments) => {
   }
   return resend.emails.send(opts);
 };
+
+const suspensionTemplate = (firstName, applicationNumber, reason, appealUrl) => ({
+  subject: 'USMC-LAS - Account Suspension Notice',
+  html: baseTemplate(`
+    <p style="margin:0 0 16px;color:#1a1a1a;font-size:14px;">Dear ${firstName},</p>
+    <p style="margin:0 0 8px;color:#555;font-size:13px;">Application ID: <strong>${applicationNumber || 'N/A'}</strong></p>
+    <p style="margin:0 0 20px;color:#333;font-size:14px;line-height:1.6;">After a thorough investigation, we have determined that your account has been suspended for violating our policies. Your reason for suspension is listed below:</p>
+    <div style="background:#fef2f2;border-left:3px solid #dc2626;padding:16px 20px;margin-bottom:20px;">
+      <p style="margin:0;color:#991b1b;font-size:14px;font-weight:600;">${reason}</p>
+    </div>
+    <p style="margin:0 0 20px;color:#333;font-size:14px;line-height:1.6;">Click the button below to view the full details of your suspension and submit an appeal.</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr><td align="center">
+        <a href="${appealUrl}" style="display:inline-block;background:#1a1a1a;color:#ffffff;padding:12px 32px;text-decoration:none;font-size:14px;font-weight:bold;letter-spacing:1px;">APPEAL SUSPENSION</a>
+      </td></tr>
+    </table>
+    <p style="margin:0;color:#888;font-size:12px;">If you believe this is an error, please use the appeal process above to contact our review team.</p>
+  `)
+});
+
+const appealReceiptTemplate = (firstName, applicationNumber, invoiceNumber) => ({
+  subject: `USMC-LAS - Appeal Receipt Received - Invoice ${invoiceNumber}`,
+  html: baseTemplate(`
+    <p style="margin:0 0 16px;color:#1a1a1a;font-size:14px;">Dear ${firstName},</p>
+    <p style="margin:0 0 8px;color:#555;font-size:13px;">Application ID: <strong>${applicationNumber || 'N/A'}</strong></p>
+    <p style="margin:0 0 20px;color:#555;font-size:13px;">Invoice Number: <strong>${invoiceNumber}</strong></p>
+    <p style="margin:0 0 16px;color:#333;font-size:14px;line-height:1.6;">We have received your clearance fee payment receipt. Your payment is now being reviewed by our team. You will be contacted once the review is complete.</p>
+    <p style="margin:0;color:#888;font-size:12px;">Please keep your invoice number for your records.</p>
+  `)
+});
+
+export const sendSuspensionEmail = async (to, firstName, applicationNumber, reason, appealUrl) => {
+  const { subject, html } = suspensionTemplate(firstName, applicationNumber, reason, appealUrl);
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+};
+
+export const sendAppealReceiptEmail = async (to, firstName, applicationNumber, invoiceNumber) => {
+  const { subject, html } = appealReceiptTemplate(firstName, applicationNumber, invoiceNumber);
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+};

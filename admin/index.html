@@ -100,7 +100,7 @@ function renderLogin(){
 }
 
 function renderApp(){
-  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='idme'?'active':''}" onclick="nav('idme')">IDME Verification <span class="badge" id="ib">0</span></a><a class="${page==='idmeCodes'?'active':''}" onclick="nav('idmeCodes')">IDME Codes <span class="badge" id="icb">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails</a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="logout()">Sign Out</a></div></nav><main class="main" id="mc"></main></div>`;
+  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='idme'?'active':''}" onclick="nav('idme')">IDME Verification <span class="badge" id="ib">0</span></a><a class="${page==='idmeCodes'?'active':''}" onclick="nav('idmeCodes')">IDME Codes <span class="badge" id="icb">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails</a><a class="${page==='suspended'?'active':''}" onclick="nav('suspended')">Suspensions <span class="badge" id="susb">0</span></a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="logout()">Sign Out</a></div></nav><main class="main" id="mc"></main></div>`;
   load();
 }
 
@@ -131,7 +131,9 @@ async function load(){
     document.getElementById('ib').textContent=dd.pendingIdme.length;
     document.getElementById('icb').textContent=dd.pendingIdmeCodes.length;
     document.getElementById('sb').textContent=(dd.support||[]).length;
-    ({dash:renderDash,users:renderUsers,payments:renderPayments,idme:renderIdme,idmeCodes:renderIdmeCodes,support:renderSupport,final:renderFinal,payconfig:renderPayConfig,emails:renderEmails}[page]||renderDash)();
+    await loadSuspended();
+    const susEl=document.getElementById('susb');if(susEl)susEl.textContent=suspendedUsers.length;
+    ({dash:renderDash,users:renderUsers,payments:renderPayments,idme:renderIdme,idmeCodes:renderIdmeCodes,support:renderSupport,final:renderFinal,payconfig:renderPayConfig,emails:renderEmails,suspended:renderSuspended}[page]||renderDash)();
   }catch(err){if(err.message.includes('Invalid')||err.message.includes('token'))logout();else document.getElementById('mc').innerHTML=`<p style="color:red">${err.message}</p>`}
 }
 
@@ -390,7 +392,82 @@ async function sendCustomEmailAdmin(){
   }catch(e){toast(e.message,true)}
 }
 
-tk?renderApp():renderLogin();
+let suspendedUsers=[];
+
+async function loadSuspended(){try{const d=await api('/admin/suspended-users');suspendedUsers=d.suspended||[]}catch{}}
+
+async function renderSuspended(){
+  await loadSuspended();
+  document.getElementById('susb').textContent=suspendedUsers.length;
+  document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Suspensions</h1><p>Manage suspended user accounts</p></div>
+  <div style="margin-bottom:1rem"><button class="btn btn-d" onclick="openSuspendModal()">+ Suspend User</button></div>
+  <div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Reason</th><th>Suspended</th><th>Appeal</th><th>Actions</th></tr></thead><tbody>
+  ${suspendedUsers.map(s=>`<tr>
+    <td><strong>${esc(s.fullName)}</strong><br/><span style="font-size:.75rem;color:var(--muted)">@${esc(s.username)}</span></td>
+    <td>${esc(s.email)}</td>
+    <td><span class="badge badge-r">${esc(s.reasonLabel)}</span></td>
+    <td>${new Date(s.suspendedAt).toLocaleDateString()}</td>
+    <td>${s.appealStatus==='under_review'?'<span class="badge badge-a">Under Review</span>':s.appealStatus==='receipts_submitted'?'<span class="badge badge-p">Receipts Submitted</span>':'<span class="badge badge-p">Pending</span>'}</td>
+    <td>
+      <button class="btn btn-s btn-sm" onclick="unsuspend('${s.userId}')">Lift</button>
+      <button class="btn btn-e btn-sm" onclick="openSuspensionEmail('${s.userId}','${esc(s.email)}','${esc(s.fullName)}')">Email</button>
+      <button class="btn btn-o btn-sm" onclick="vu('${s.userId}')">View</button>
+    </td>
+  </tr>`).join('')}
+  ${suspendedUsers.length===0?'<tr><td colspan="6" style="text-align:center;color:var(--muted)">No suspended users</td></tr>':''}
+  </tbody></table></div></div></div>`;
+}
+
+function openSuspendModal(){
+  const overlay=document.createElement('div');overlay.className='modal-overlay';overlay.id='suspendModal';
+  overlay.innerHTML=`<div class="modal-box" style="max-width:500px"><h3>Suspend User</h3>
+  <div class="fg"><label>Select User</label><select class="fi" id="susUser"><option value="">Select a user...</option>${allUsers.map(u=>`<option value="${u.id}">${esc(u.fullName)} (${esc(u.email)})</option>`).join('')}</select></div>
+  <div class="fg"><label>Reason for Suspension</label><select class="fi" id="susReason">
+    <option value="">Select reason...</option>
+    <option value="multiple_accounts">Multiple accounts detected</option>
+    <option value="invalid_id">Invalid ID</option>
+    <option value="idme_failed">IDME verification failed</option>
+    <option value="unauthorized_disclosure">Unauthorized disclosure</option>
+  </select></div>
+  <div id="susErr" class="err"></div>
+  <div style="display:flex;gap:1rem;justify-content:flex-end;margin-top:1.5rem">
+    <button class="btn btn-o" onclick="document.getElementById('suspendModal').remove()">Cancel</button>
+    <button class="btn btn-d" onclick="doSuspendUser()">Suspend User</button>
+  </div></div>`;
+  document.body.appendChild(overlay);
+}
+
+async function doSuspendUser(){
+  const userId=document.getElementById('susUser').value;
+  const reason=document.getElementById('susReason').value;
+  if(!userId||!reason){document.getElementById('susErr').textContent='Select a user and reason';return}
+  const user=allUsers.find(u=>u.id===userId);
+  if(!confirm(`Are you sure you want to suspend ${user?.fullName||'this user'}?`))return;
+  try{
+    await api(`/admin/suspend-user/${userId}`,'POST',{reason});
+    toast('User suspended');
+    document.getElementById('suspendModal').remove();
+    renderSuspended();
+  }catch(e){document.getElementById('susErr').textContent=e.message}
+}
+
+async function unsuspend(userId){
+  if(!confirm('Lift this suspension?'))return;
+  try{await api(`/admin/unsuspend-user/${userId}`,'POST');toast('Suspension lifted');renderSuspended()}catch(e){toast(e.message,true)}
+}
+
+function openSuspensionEmail(uid,email,name){
+  const overlay=document.createElement('div');overlay.className='modal-overlay';overlay.id='emailModal';
+  overlay.innerHTML=`<div class="modal-box" style="max-width:540px"><h3>Email ${esc(name)}</h3>
+  <div class="fg"><label>To</label><input type="email" class="fi" value="${esc(email)}" disabled style="background:#f3f4f6"/></div>
+  <div class="fg"><label>Subject</label><input type="text" class="fi" id="emailSubject" value="RE: SUSPENSION" /></div>
+  <div class="fg"><label>Message</label><textarea class="fi" id="emailMsg" rows="6" placeholder="Type your message about the suspension..."></textarea></div>
+  <div style="display:flex;gap:1rem;justify-content:flex-end;margin-top:1.5rem">
+    <button class="btn btn-o" onclick="closeEmailModal()">Cancel</button>
+    <button class="btn btn-e" onclick="sendEmail('${uid}')">Send Email</button>
+  </div></div>`;
+  document.body.appendChild(overlay);
+}
 </script>
 </body>
 </html>
