@@ -90,7 +90,9 @@ function toast(m,e=false){const t=document.createElement('div');t.className='toa
 async function api(ep,m='GET',b=null){
   const o={method:m,headers:{'Content-Type':'application/json','Authorization':'Bearer '+tk}};
   if(b)o.body=JSON.stringify(b);
-  const r=await fetch(`${API}${ep}`,o);const d=await r.json();
+  const r=await fetch(`${API}${ep}`,o);
+  const txt=await r.text();
+  let d;try{d=JSON.parse(txt)}catch(e){d={error:txt||'Request failed'}}
   if(!r.ok)throw new Error(d.error||'Failed');return d;
 }
 
@@ -468,6 +470,8 @@ function openSuspensionEmail(uid,email,name){
   </div></div>`;
   document.body.appendChild(overlay);
 }
+
+tk?renderApp():renderLogin();
 </script>
 </body>
 </html>
