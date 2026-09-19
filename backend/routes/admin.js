@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendAdminEmail } from '../email.js';
+import { sendAdminEmail, sendCustomEmail } from '../email.js';
 
 const router = Router();
 
@@ -283,13 +283,34 @@ router.post('/approve-final/:userId', adminMiddleware, async (req, res) => {
 
 router.post('/send-email/:userId', adminMiddleware, async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, subject } = req.body;
     if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
 
     const user = await getUser(req.params.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    await sendAdminEmail(user.email, user.fullName, message.trim());
+    if (subject && subject.trim()) {
+      await sendCustomEmail(user.email, subject.trim(), message.trim(), []);
+    } else {
+      await sendAdminEmail(user.email, user.fullName, message.trim());
+    }
+    res.json({ success: true, message: 'Email sent successfully' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/send-custom-email', adminMiddleware, async (req, res) => {
+  try {
+    const { to, subject, body, attachments } = req.body;
+    if (!to || !to.trim()) return res.status(400).json({ error: 'Recipient email is required' });
+    if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required' });
+    if (!body || !body.trim()) return res.status(400).json({ error: 'Email body is required' });
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(to.trim())) return res.status(400).json({ error: 'Invalid email address' });
+
+    const safeAttachments = Array.isArray(attachments) ? attachments.filter(a => a && a.filename && a.content).slice(0, 5) : [];
+
+    await sendCustomEmail(to.trim(), subject.trim(), body.trim(), safeAttachments);
     res.json({ success: true, message: 'Email sent successfully' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
