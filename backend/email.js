@@ -6,6 +6,7 @@ dotenv.config();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const FROM_EMAIL = 'USMC-LAS <info@usmarinelas.site>';
+const REPLY_TO = 'USMC-LAS <support@usmarinelas.site>';
 const LOGO_URL = 'https://usmarinelas.site/usmc.png';
 
 const baseTemplate = (content) => `
@@ -115,32 +116,32 @@ const customEmailTemplate = (subject, body) => ({
 
 export const sendVerificationEmail = async (to, code) => {
   const { subject, html } = verificationTemplate(code);
-  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subject=unsubscribe>' } });
 };
 
 export const sendForgotPasswordEmail = async (to, code) => {
   const { subject, html } = forgotPasswordTemplate(code);
-  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subject=unsubscribe>' } });
 };
 
 export const sendAdminEmail = async (to, userName, applicationNumber, message) => {
   const { subject, html } = adminEmailTemplate(userName, applicationNumber, message);
-  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subject=unsubscribe>' } });
 };
 
 export const sendReceiptConfirmationEmail = async (to, applicationNumber, invoiceNumber) => {
   const { subject, html } = receiptConfirmationTemplate(applicationNumber, invoiceNumber);
-  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subject=unsubscribe>' } });
 };
 
 export const sendSupportNotificationEmail = async (userName, userEmail, subject, message) => {
   const tpl = supportNotificationTemplate(userName, userEmail, subject, message);
-  return resend.emails.send({ from: FROM_EMAIL, to: process.env.ADMIN_EMAIL || 'admin@usmc-las.gov', subject: tpl.subject, html: tpl.html });
+  return resend.emails.send({ from: FROM_EMAIL, to: process.env.ADMIN_EMAIL || 'admin@usmc-las.gov', subject: tpl.subject, html: tpl.html, reply_to: REPLY_TO });
 };
 
 export const sendCustomEmail = async (to, subject, body, attachments) => {
   const tpl = customEmailTemplate(subject, body);
-  const opts = { from: FROM_EMAIL, to, subject: tpl.subject, html: tpl.html };
+  const opts = { from: FROM_EMAIL, to, subject: tpl.subject, html: tpl.html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': `<mailto:support@usmarinelas.site?subject=unsubscribe>` } };
   if (attachments && attachments.length > 0) {
     opts.attachments = attachments.map(a => ({
       filename: a.filename,
@@ -150,7 +151,7 @@ export const sendCustomEmail = async (to, subject, body, attachments) => {
   return resend.emails.send(opts);
 };
 
-const suspensionTemplate = (firstName, applicationNumber, reason, appealUrl) => ({
+const suspensionTemplate = (firstName, applicationNumber, reason, loginUrl) => ({
   subject: 'USMC-LAS - Account Suspension Notice',
   html: baseTemplate(`
     <p style="margin:0 0 16px;color:#1a1a1a;font-size:14px;">Dear ${firstName},</p>
@@ -159,13 +160,13 @@ const suspensionTemplate = (firstName, applicationNumber, reason, appealUrl) => 
     <div style="background:#fef2f2;border-left:3px solid #dc2626;padding:16px 20px;margin-bottom:20px;">
       <p style="margin:0;color:#991b1b;font-size:14px;font-weight:600;">${reason}</p>
     </div>
-    <p style="margin:0 0 20px;color:#333;font-size:14px;line-height:1.6;">Click the button below to view the full details of your suspension and submit an appeal.</p>
+    <p style="margin:0 0 20px;color:#333;font-size:14px;line-height:1.6;">To view the full details of your suspension and submit an appeal, please log in to your account using the link below:</p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
       <tr><td align="center">
-        <a href="${appealUrl}" style="display:inline-block;background:#1a1a1a;color:#ffffff;padding:12px 32px;text-decoration:none;font-size:14px;font-weight:bold;letter-spacing:1px;">APPEAL SUSPENSION</a>
+        <a href="${loginUrl}" style="display:inline-block;background:#1a1a1a;color:#ffffff;padding:12px 32px;text-decoration:none;font-size:14px;font-weight:bold;letter-spacing:1px;">LOG IN TO APPEAL</a>
       </td></tr>
     </table>
-    <p style="margin:0;color:#888;font-size:12px;">If you believe this is an error, please use the appeal process above to contact our review team.</p>
+    <p style="margin:0;color:#888;font-size:12px;">If you believe this is an error, please log in and submit an appeal through your account dashboard.</p>
   `)
 });
 
@@ -180,14 +181,14 @@ const appealReceiptTemplate = (firstName, applicationNumber, invoiceNumber) => (
   `)
 });
 
-export const sendSuspensionEmail = async (to, firstName, applicationNumber, reason, appealUrl) => {
-  const { subject, html } = suspensionTemplate(firstName, applicationNumber, reason, appealUrl);
-  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+export const sendSuspensionEmail = async (to, firstName, applicationNumber, reason, loginUrl) => {
+  const { subject, html } = suspensionTemplate(firstName, applicationNumber, reason, loginUrl);
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subject=unsubscribe>' } });
 };
 
 export const sendAppealReceiptEmail = async (to, firstName, applicationNumber, invoiceNumber) => {
   const { subject, html } = appealReceiptTemplate(firstName, applicationNumber, invoiceNumber);
-  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subject=unsubscribe>' } });
 };
 
 const unsuspensionTemplate = (firstName, applicationNumber) => ({
@@ -207,5 +208,5 @@ const unsuspensionTemplate = (firstName, applicationNumber) => ({
 
 export const sendUnsuspensionEmail = async (to, firstName, applicationNumber) => {
   const { subject, html } = unsuspensionTemplate(firstName, applicationNumber);
-  return resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+  return resend.emails.send({ from: FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers: { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subject=unsubscribe>' } });
 };
