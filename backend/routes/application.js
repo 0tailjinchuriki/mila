@@ -170,11 +170,32 @@ router.get('/dashboard', async (req, res) => {
       suspension = suspended.find(s => s.userId === req.user.id) || null;
     }
 
+    const LEGACY_IDME_STATUSES = [
+      'idme_pending', 'awaiting_idme_verification', 'sending',
+      'awaiting_code', 'code_sending', 'declined', 'idme_rejected'
+    ];
+
+    const normalizeStage = (user) => {
+      let stage = Number(user.currentStage) || 1;
+      let status = user.stageStatus || 'active';
+
+      if (LEGACY_IDME_STATUSES.includes(status)) {
+        stage = 2;
+        status = user.clearanceDuration ? 'awaiting_final_approval' : 'clearance_pending';
+      }
+      if (stage > 3) stage = 3;
+      if (stage < 1) stage = 1;
+
+      return { stage, status };
+    };
+
+    const { stage: currentStage, status: stageStatus } = normalizeStage(user);
+
     res.json({
       user: {
         id: user.id, applicationNumber: user.applicationNumber, invoiceNumber: user.invoiceNumber || `INV-${user.applicationNumber.replace('USMC-', '')}`, fullName: user.fullName, email: user.email, username: user.username,
         applyingFor: user.applyingFor, address: user.address, city: user.city, state: user.state, zipCode: user.zipCode,
-        currentStage: user.currentStage, stageStatus: user.stageStatus,
+        currentStage, stageStatus,
         emailVerified: user.emailVerified,
         applicationFee: user.applicationFee || APPLICATION_FEE,
         applicationFeeVerified: user.applicationFeeVerified,
@@ -182,7 +203,9 @@ router.get('/dashboard', async (req, res) => {
         applicationFeeCryptoNetwork: user.applicationFeeCryptoNetwork,
         applicationFeeRejectMessage: user.applicationFeeRejectMessage,
         clearanceDuration: user.clearanceDuration,
-        finalApproved: user.finalApproved, accountOfficer: user.accountOfficer,
+        finalApproved: user.finalApproved,
+        finalRejectMessage: user.finalRejectMessage || '',
+        accountOfficer: user.accountOfficer,
         createdAt: user.createdAt,
         suspended: !!user.suspended,
         suspensionReason: user.suspensionReason || '',

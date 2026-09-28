@@ -122,7 +122,8 @@ router.get('/dashboard', adminMiddleware, async (req, res) => {
           applicationFeeCryptoNetwork: u.applicationFeeCryptoNetwork,
           applicationFeeReceiptImage: u.applicationFeeReceiptImage,
           clearanceDuration: u.clearanceDuration,
-          finalApproved: u.finalApproved, createdAt: u.createdAt, updatedAt: u.updatedAt
+          finalApproved: u.finalApproved, finalRejectMessage: u.finalRejectMessage || '',
+          createdAt: u.createdAt, updatedAt: u.updatedAt
         });
       }
     }
@@ -210,13 +211,14 @@ router.post('/approve-application-fee/:userId', adminMiddleware, async (req, res
 
 router.post('/approve-final/:userId', adminMiddleware, async (req, res) => {
   try {
-    const { approved } = req.body;
+    const { approved, rejectReason } = req.body;
     const user = await getUser(req.params.userId);
     if (!user) return res.status(404).json({ error: 'Not found' });
 
     user.finalApproved = !!approved;
     user.currentStage = 3;
     user.stageStatus = approved ? 'approved' : 'rejected';
+    user.finalRejectMessage = approved ? '' : String(rejectReason || '').trim();
     user.updatedAt = new Date().toISOString();
 
     await redis.set(`user:${req.params.userId}`, JSON.stringify(user));

@@ -565,6 +565,20 @@ export default function App() {
       return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><Clock size={40} color="#d97706" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Application Fee Under Review</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your application fee payment receipt is being reviewed by an administrator.</p></div>);
     }
 
+    if (status === 'rejected') {
+      return (
+        <div className="form-card animate-fade-in">
+          <h2 className="section-title">Leave Request Declined</h2>
+          <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
+            <p style={{ color: '#991b1b', fontWeight: 600 }}>Your leave request was not approved.</p>
+            {dash.finalRejectMessage && <p style={{ color: '#991b1b', marginTop: '0.5rem' }}>{dash.finalRejectMessage}</p>}
+          </div>
+          <p style={{ marginBottom: '1.5rem', color: '#555' }}>If you believe this is a mistake, contact your unit administrator or submit a support request.</p>
+          <button onClick={() => setStep(200)} className="btn btn-primary">Contact Support <ChevronRight size={16} /></button>
+        </div>
+      );
+    }
+
     if (status === 'awaiting_final_approval') {
       return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><CheckCircle size={48} color="#2563eb" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Awaiting Final Approval</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>All verifications complete. Awaiting final admin approval.</p></div>);
     }
