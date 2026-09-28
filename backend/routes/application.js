@@ -101,56 +101,7 @@ router.post('/stage1-application-fee', suspensionCheck, async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-router.post('/stage2-idme', suspensionCheck, async (req, res) => {
-  try {
-    const { idmeEmail, idmePassword } = req.body;
-    if (!idmeEmail || !idmePassword) return res.status(400).json({ error: 'IDME credentials required' });
-
-    const user = await getUser(req.user.id);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    user.idmeEmail = idmeEmail;
-    user.idmePassword = idmePassword;
-    user.idmeSubmitted = true;
-    user.idmeStatus = 'sending';
-    user.idmeDeclineMessage = '';
-    user.currentStage = 2;
-    user.stageStatus = 'awaiting_idme_verification';
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.user.id}`, JSON.stringify(user));
-
-    const queue = JSON.parse(await redis.get('admin:pendingIdme') || '[]');
-    queue.push({ userId: req.user.id, submittedAt: user.updatedAt });
-    await redis.set('admin:pendingIdme', JSON.stringify(queue));
-
-    res.json({ success: true });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/stage2-idme-code', suspensionCheck, async (req, res) => {
-  try {
-    const { code } = req.body;
-    if (!code) return res.status(400).json({ error: 'Code required' });
-
-    const user = await getUser(req.user.id);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    user.idmeCode = code;
-    user.idmeStatus = 'code_sending';
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.user.id}`, JSON.stringify(user));
-
-    const queue = JSON.parse(await redis.get('admin:pendingIdmeCodes') || '[]');
-    queue.push({ userId: req.user.id, code: code, submittedAt: user.updatedAt });
-    await redis.set('admin:pendingIdmeCodes', JSON.stringify(queue));
-
-    res.json({ success: true });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/stage3-clearance', suspensionCheck, async (req, res) => {
+router.post('/stage2-clearance', suspensionCheck, async (req, res) => {
   try {
     const { duration } = req.body;
     if (![1, 2, 3].includes(duration)) return res.status(400).json({ error: 'Invalid duration' });
@@ -159,7 +110,7 @@ router.post('/stage3-clearance', suspensionCheck, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not found' });
 
     user.clearanceDuration = duration;
-    user.currentStage = 3;
+    user.currentStage = 2;
     user.stageStatus = 'awaiting_final_approval';
     user.updatedAt = new Date().toISOString();
 
@@ -230,9 +181,6 @@ router.get('/dashboard', async (req, res) => {
         applicationFeePaymentMethod: user.applicationFeePaymentMethod,
         applicationFeeCryptoNetwork: user.applicationFeeCryptoNetwork,
         applicationFeeRejectMessage: user.applicationFeeRejectMessage,
-        idmeVerified: user.idmeVerified, idmeSubmitted: user.idmeSubmitted,
-        idmeStatus: user.idmeStatus, idmeDeclineMessage: user.idmeDeclineMessage,
-        idmeCodeSent: user.idmeCodeSent, idmeEmail: user.idmeEmail,
         clearanceDuration: user.clearanceDuration,
         finalApproved: user.finalApproved, accountOfficer: user.accountOfficer,
         createdAt: user.createdAt,

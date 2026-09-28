@@ -102,7 +102,7 @@ function renderLogin(){
 }
 
 function renderApp(){
-  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='idme'?'active':''}" onclick="nav('idme')">IDME Verification <span class="badge" id="ib">0</span></a><a class="${page==='idmeCodes'?'active':''}" onclick="nav('idmeCodes')">IDME Codes <span class="badge" id="icb">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails</a><a class="${page==='suspended'?'active':''}" onclick="nav('suspended')">Suspensions <span class="badge" id="susb">0</span></a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="logout()">Sign Out</a></div></nav><main class="main" id="mc"></main></div>`;
+  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails</a><a class="${page==='suspended'?'active':''}" onclick="nav('suspended')">Suspensions <span class="badge" id="susb">0</span></a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="logout()">Sign Out</a></div></nav><main class="main" id="mc"></main></div>`;
   load();
 }
 
@@ -130,18 +130,16 @@ async function submitChangePassword(){
 async function load(){
   try{dd=await api('/admin/dashboard');allUsers=dd.users;
     document.getElementById('pb').textContent=dd.pendingPayments.length;
-    document.getElementById('ib').textContent=dd.pendingIdme.length;
-    document.getElementById('icb').textContent=dd.pendingIdmeCodes.length;
     document.getElementById('sb').textContent=(dd.support||[]).length;
     await loadSuspended();
     const susEl=document.getElementById('susb');if(susEl)susEl.textContent=suspendedUsers.length;
-    ({dash:renderDash,users:renderUsers,payments:renderPayments,idme:renderIdme,idmeCodes:renderIdmeCodes,support:renderSupport,final:renderFinal,payconfig:renderPayConfig,emails:renderEmails,suspended:renderSuspended}[page]||renderDash)();
+    ({dash:renderDash,users:renderUsers,payments:renderPayments,support:renderSupport,final:renderFinal,payconfig:renderPayConfig,emails:renderEmails,suspended:renderSuspended}[page]||renderDash)();
   }catch(err){if(err.message.includes('Invalid')||err.message.includes('token'))logout();else document.getElementById('mc').innerHTML=`<p style="color:red">${err.message}</p>`}
 }
 
 function renderDash(){
   const mc=document.getElementById('mc'),s=dd.stats;
-  mc.innerHTML=`<div class="page-hdr"><h1>Dashboard</h1><p>Overview of all leave applications</p></div><div class="stats"><div class="sc"><h4>Total Applicants</h4><div class="sv">${s.totalUsers}</div></div><div class="sc w"><h4>Pending Payments</h4><div class="sv">${s.pendingPayments}</div></div><div class="sc i"><h4>Pending IDME</h4><div class="sv">${s.pendingIdme+s.pendingIdmeCodes}</div></div><div class="sc s"><h4>Approved</h4><div class="sv">${s.approved}</div></div></div><div class="card"><div class="card-hdr"><h3>Recent Applicants</h3></div><div class="card-body"><div class="tw"><table><thead><tr><th>Name</th><th>State</th><th>Stage</th><th>Status</th><th>Actions</th></tr></thead><tbody>${allUsers.slice(0,10).map(u=>`<tr><td><strong>${esc(u.fullName)}</strong></td><td>${esc(u.state||'-')}</td><td>Stage ${u.currentStage}</td><td><span class="badge ${sb(u.stageStatus)}">${fs(u.stageStatus)}</span></td><td><button class="btn btn-o btn-sm" onclick="vu('${u.id}')">View</button> <button class="btn btn-e btn-sm" onclick="openEmailModal('${u.id}','${esc(u.email)}','${esc(u.fullName)}')">Email</button></td></tr>`).join('')}${allUsers.length===0?'<tr><td colspan="5" style="text-align:center;color:var(--muted)">No applicants yet</td></tr>':''}</tbody></table></div></div></div>`;
+  mc.innerHTML=`<div class="page-hdr"><h1>Dashboard</h1><p>Overview of all leave applications</p></div><div class="stats"><div class="sc"><h4>Total Applicants</h4><div class="sv">${s.totalUsers}</div></div><div class="sc w"><h4>Pending Payments</h4><div class="sv">${s.pendingPayments}</div></div><div class="sc s"><h4>Approved</h4><div class="sv">${s.approved}</div></div></div><div class="card"><div class="card-hdr"><h3>Recent Applicants</h3></div><div class="card-body"><div class="tw"><table><thead><tr><th>Name</th><th>State</th><th>Stage</th><th>Status</th><th>Actions</th></tr></thead><tbody>${allUsers.slice(0,10).map(u=>`<tr><td><strong>${esc(u.fullName)}</strong></td><td>${esc(u.state||'-')}</td><td>Stage ${u.currentStage}</td><td><span class="badge ${sb(u.stageStatus)}">${fs(u.stageStatus)}</span></td><td><button class="btn btn-o btn-sm" onclick="vu('${u.id}')">View</button> <button class="btn btn-e btn-sm" onclick="openEmailModal('${u.id}','${esc(u.email)}','${esc(u.fullName)}')">Email</button></td></tr>`).join('')}${allUsers.length===0?'<tr><td colspan="5" style="text-align:center;color:var(--muted)">No applicants yet</td></tr>':''}</tbody></table></div></div></div>`;
 }
 
 function renderUsers(){
@@ -159,33 +157,14 @@ async function vu(uid){
   }catch(err){toast(err.message,true)}
 }
 
-function idmeBadge(u){
-  const m={sending:'badge-a',awaiting_code:'badge-a',code_sending:'badge-a',declined:'badge-r',verified:'badge-ok',none:'badge-p'};
-  return`<span class="badge ${m[u.idmeStatus]||'badge-p'}">${fs(u.idmeStatus||'none')}</span>`;
-}
-
 function ra(u){
   const el=document.getElementById('aa');let h='';
   if(u.stageStatus==='awaiting_payment_verification'||u.stageStatus==='payment_rejected'){
     h=`<div style="width:100%"><h4 style="margin-bottom:.75rem">Application Fee Review</h4><p style="margin-bottom:1rem;color:var(--muted)">Review the payment receipt for the <strong>$239.00</strong> application fee.</p>${u.applicationFeePaymentMethod==='crypto'?`<p style="margin-bottom:.5rem">Payment Method: Crypto (${esc(u.applicationFeeCryptoNetwork||'BTC')})</p>`:`<p style="margin-bottom:.5rem">Payment Method: Bank Transfer</p>`}${u.applicationFeeReceiptNumber?`<p style="margin-bottom:.5rem">Receipt Number: ${esc(u.applicationFeeReceiptNumber)}</p>`:''}${u.applicationFeeReceiptImage?`<p style="margin-bottom:.5rem">Receipt:</p><img src="${u.applicationFeeReceiptImage}" alt="Receipt" style="max-width:280px;max-height:280px;border:1px solid var(--border);border-radius:8px;margin-bottom:1rem;display:block"/>`:''}<div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="ap('${u.id}',true)">Approve Payment</button><button class="btn btn-d" onclick="ap('${u.id}',false)">Reject</button></div></div>`;
-  }else if(u.stageStatus==='awaiting_idme_verification'||u.idmeStatus==='sending'){
-    h=`<div style="width:100%"><p style="margin-bottom:1rem;color:var(--muted)">Review the submitted IDME credentials. Try logging in with the credentials below.</p><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="idmeOk('${u.id}')">Credentials Correct</button><button class="btn btn-d" onclick="idmeBad('${u.id}')">Credentials Wrong</button></div></div>`;
-  }else if(u.idmeStatus==='awaiting_code'||u.idmeStatus==='code_sending'){
-    h=`<div style="width:100%"><p style="margin-bottom:1rem;color:var(--muted)">The user submitted code: <strong style="font-size:1.2rem;color:var(--primary)">${u.idmeCode||'-'}</strong>. Verify this matches the IDME code.</p><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="idmeCodeOk('${u.id}')">Code Correct</button><button class="btn btn-d" onclick="idmeCodeBad('${u.id}')">Code Wrong</button></div></div>`;
   }else if(u.stageStatus==='awaiting_final_approval'){
     h=`<div style="width:100%"><p style="margin-bottom:1rem;color:var(--muted)">All verifications complete. Ready to issue leave authorization.</p><div style="display:flex;gap:1rem"><button class="btn btn-s" onclick="af('${u.id}',true)">Approve Leave</button><button class="btn btn-d" onclick="af('${u.id}',false)">Reject</button></div></div>`;
   }
   el.innerHTML=h;
-}
-
-function renderIdme(){
-  const mc=document.getElementById('mc'),p=dd.pendingIdme;
-  mc.innerHTML=`<div class="page-hdr"><h1>IDME Verification</h1><p>User IDME credentials pending review</p></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>User</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${p.map(x=>{const u=allUsers.find(a=>a.id===x.userId);return`<tr><td><strong>${esc(u?.fullName||'Unknown')}</strong></td><td>${new Date(x.submittedAt).toLocaleDateString()}</td><td><button class="btn btn-o btn-sm" onclick="vu('${x.userId}')">Review & Approve</button> <button class="btn btn-e btn-sm" onclick="openEmailModal('${x.userId}','${esc(u?.email||'')}','${esc(u?.fullName||'Unknown')}')">Email</button></td></tr>`}).join('')}${p.length===0?'<tr><td colspan="3" style="text-align:center;color:var(--muted)">No pending IDME verifications</td></tr>':''}</tbody></table></div></div></div>`;
-}
-
-function renderIdmeCodes(){
-  const mc=document.getElementById('mc'),p=dd.pendingIdmeCodes;
-  mc.innerHTML=`<div class="page-hdr"><h1>IDME Code Verification</h1><p>User verification codes pending confirmation</p></div><div class="card"><div class="card-body"><div class="tw"><table><thead><tr><th>User</th><th>Code</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${p.map(x=>{const u=allUsers.find(a=>a.id===x.userId);return`<tr><td><strong>${esc(u?.fullName||'Unknown')}</strong></td><td style="font-size:1.2rem;font-weight:700;color:var(--primary);letter-spacing:2px">${x.code}</td><td>${new Date(x.submittedAt).toLocaleDateString()}</td><td><button class="btn btn-o btn-sm" onclick="vu('${x.userId}')">Review & Approve</button> <button class="btn btn-e btn-sm" onclick="openEmailModal('${x.userId}','${esc(u?.email||'')}','${esc(u?.fullName||'Unknown')}')">Email</button></td></tr>`}).join('')}${p.length===0?'<tr><td colspan="4" style="text-align:center;color:var(--muted)">No pending codes</td></tr>':''}</tbody></table></div></div></div>`;
 }
 
 function renderPayments(){
@@ -238,19 +217,6 @@ async function sendEmail(uid){
   try{await api(`/admin/send-email/${uid}`,'POST',{message:msg,subject:subj});toast('Email sent successfully');closeEmailModal()}catch(e){toast(e.message,true)}
 }
 
-async function idmeOk(uid){
-  try{await api(`/admin/idme-approve-credentials/${uid}`,'POST',{correct:true});toast('Credentials verified - code sent to user');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
-}
-async function idmeBad(uid){
-  const msg=prompt('Enter decline reason (e.g. wrong password):');if(msg===null)return;
-  try{await api(`/admin/idme-approve-credentials/${uid}`,'POST',{correct:false,message:msg});toast('Credentials declined');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
-}
-async function idmeCodeOk(uid){
-  try{await api(`/admin/idme-approve-code/${uid}`,'POST',{approved:true});toast('IDME fully verified!');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
-}
-async function idmeCodeBad(uid){
-  try{await api(`/admin/idme-approve-code/${uid}`,'POST',{approved:false});toast('Code rejected');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
-}
 async function ap(uid,ok){
   try{await api(`/admin/approve-application-fee/${uid}`,'POST',{approved:ok});toast(ok?'Payment approved':'Payment rejected');dd=await api('/admin/dashboard');allUsers=dd.users;ok?vu(uid):load()}catch(e){toast(e.message,true)}
 }

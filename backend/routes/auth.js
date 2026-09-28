@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import redis from '../redis.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { sendForgotPasswordEmail } from '../email.js';
+import { sendForgotPasswordEmail, isValidEmail } from '../email.js';
 
 const router = Router();
 
@@ -42,15 +42,20 @@ router.post('/signup', async (req, res) => {
     if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
       return res.status(400).json({ error: 'Invalid input types' });
     }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address' });
+    }
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
-    const existingEmail = await redis.get(`email:${email}`);
+    const emailKey = email.trim().toLowerCase();
+
+    const existingEmail = await redis.get(`email:${emailKey}`);
     if (existingEmail) {
       const emailOwner = await redis.get(`user:${existingEmail}`);
       if (emailOwner) return res.status(400).json({ error: 'Email already registered' });
-      await redis.del(`email:${email}`);
+      await redis.del(`email:${emailKey}`);
     }
 
     const existingUser = await redis.get(`username:${username}`);
@@ -71,8 +76,6 @@ router.post('/signup', async (req, res) => {
       address: address || '', city: city || '', state: state || '', zipCode: zipCode || '',
       currentStage: 1, stageStatus: 'active',
       emailVerified: true,
-      idmeSubmitted: false, idmeVerified: false, idmeStatus: 'none',
-      idmeEmail: '', idmePassword: '', idmeDeclineMessage: '', idmeCode: '', idmeCodeSent: false,
       accountOfficer: '',
       clearanceDuration: 0, clearanceFee: 0, clearancePaymentVerified: false,
       finalApproved: false,
@@ -82,7 +85,7 @@ router.post('/signup', async (req, res) => {
     await redis.set(`user:${userId}`, JSON.stringify(user));
 
     await Promise.all([
-      redis.set(`email:${email}`, userId),
+      redis.set(`email:${emailKey}`, userId),
       redis.set(`username:${username}`, userId),
     ]);
 
@@ -103,7 +106,7 @@ router.post('/login', async (req, res) => {
 
     let userId;
     if (typeof login === 'string' && login.includes('@')) {
-      userId = await redis.get(`email:${login}`);
+      userId = await redis.get(`email:${login.trim().toLowerCase()}`);
     } else {
       userId = await redis.get(`username:${login}`);
     }
@@ -142,7 +145,7 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
 
-    const userId = await redis.get(`email:${email}`);
+    const userId = await redis.get(`email:${String(email).trim().toLowerCase()}`);
     if (!userId) return res.json({ success: true, message: 'If an account exists, a reset code has been sent' });
 
     const userData = await redis.get(`user:${userId}`);
@@ -150,7 +153,8 @@ router.post('/forgot-password', async (req, res) => {
 
     const code = generateCode();
     await redis.set(`forgot:password:${userId}`, code, 'EX', 600);
-    await sendForgotPasswordEmail(email, code);
+    const result = await sendForgotPasswordEmail(email.trim().toLowerCase(), code);
+    if (result?.error) console.error(`[EMAIL] forgot-password failed for ${userId}: ${result.error.message}`);
 
     res.json({ success: true, message: 'If an account exists, a reset code has been sent' });
   } catch {
@@ -163,7 +167,7 @@ router.post('/verify-forgot-password', async (req, res) => {
     const { email, code } = req.body;
     if (!email || !code) return res.status(400).json({ error: 'Email and code required' });
 
-    const userId = await redis.get(`email:${email}`);
+    const userId = await redis.get(`email:${String(email).trim().toLowerCase()}`);
     if (!userId) return res.status(400).json({ error: 'Invalid code' });
 
     const stored = await redis.get(`forgot:password:${userId}`);

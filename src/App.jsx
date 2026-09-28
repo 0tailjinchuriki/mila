@@ -112,8 +112,6 @@ export default function App() {
   const [bio, setBio] = useState({ address:'', city:'', state:'', zipCode:'' });
   const [agreed, setAgreed] = useState(false);
   const [loginForm, setLoginForm] = useState({ login:'', password:'' });
-  const [idmeCreds, setIdmeCreds] = useState({ idmeEmail:'', idmePassword:'' });
-  const [idmeCode, setIdmeCode] = useState('');
   const [clearDur, setClearDur] = useState(0);
   const [appFee, setAppFee] = useState({ paymentMethod:'bank_transfer', cryptoNetwork:'BTC', receiptNumber:'', receiptImage:'' });
   const [appFeeProceed, setAppFeeProceed] = useState(false);
@@ -175,7 +173,7 @@ export default function App() {
 
   useEffect(() => {
     if (!dash) return;
-    const waiting = ['awaiting_payment_verification','awaiting_idme_verification','code_sending','awaiting_final_approval'];
+    const waiting = ['awaiting_payment_verification','awaiting_final_approval'];
     if (!waiting.includes(dash.stageStatus)) return;
     const t = setInterval(loadDash, 3000);
     return () => clearInterval(t);
@@ -361,24 +359,10 @@ export default function App() {
     setLoading(false);
   };
 
-  const submitIdmeCreds = async () => {
-    if (!idmeCreds.idmeEmail || !idmeCreds.idmePassword) { setError('Enter both IDME email and password'); return; }
-    setError(''); setLoading(true);
-    try { await api('/application/stage2-idme', 'POST', idmeCreds, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
-    setLoading(false);
-  };
-
-  const submitIdmeCode = async () => {
-    if (!idmeCode || idmeCode.length !== 6) { setError('Enter the 6-digit code'); return; }
-    setError(''); setLoading(true);
-    try { await api('/application/stage2-idme-code', 'POST', { code: idmeCode }, token); setStep(100); loadDash(); } catch(e) { setError(e.message); }
-    setLoading(false);
-  };
-
   const selectDuration = async (dur) => {
     setError(''); setLoading(true);
     try {
-      const d = await api('/application/stage3-clearance', 'POST', { duration: dur }, token);
+      const d = await api('/application/stage2-clearance', 'POST', { duration: dur }, token);
       setClearDur(dur); setStep(100); loadDash();
     } catch(e) { setError(e.message); }
     setLoading(false);
@@ -581,50 +565,6 @@ export default function App() {
       return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><Clock size={40} color="#d97706" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Application Fee Under Review</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your application fee payment receipt is being reviewed by an administrator.</p></div>);
     }
 
-    if (status === 'awaiting_idme_verification' || dash?.idmeStatus === 'sending') {
-      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><div style={{ animation: 'spin 1s linear infinite', display: 'inline-block', marginBottom: '1rem' }}><Shield size={40} color="var(--primary-blue)" /></div><h2 className="section-title" style={{ border: 'none' }}>IDME Verification In Progress</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your IDME credentials are being verified. Please wait...</p></div>);
-    }
-
-    if (dash?.idmeStatus === 'declined') {
-      return (
-        <div className="form-card animate-fade-in">
-          <h2 className="section-title">IDME - Action Required</h2>
-          <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
-            <p style={{ color: '#991b1b', fontWeight: 600 }}>Your IDME credentials were rejected:</p>
-            <p style={{ color: '#991b1b', marginTop: '0.5rem' }}>{dash.idmeDeclineMessage}</p>
-          </div>
-          <p style={{ marginBottom: '1rem', color: '#555' }}>Re-enter your IDME credentials.</p>
-          <div className="form-group"><label className="form-label">IDME Email</label><input type="email" className="form-input" placeholder="your@idme.email" value={idmeCreds.idmeEmail} onChange={e => setIdmeCreds({ ...idmeCreds, idmeEmail: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">IDME Password</label><input type="password" className="form-input" placeholder="IDME password" value={idmeCreds.idmePassword} onChange={e => setIdmeCreds({ ...idmeCreds, idmePassword: e.target.value })} /></div>
-          {error && <p style={{ color: '#991b1b', marginBottom: '1rem' }}>{error}</p>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-            <button onClick={submitIdmeCreds} className="btn btn-primary" disabled={loading}>{loading ? 'Sending...' : 'Resubmit'} <ChevronRight size={16} /></button>
-          </div>
-        </div>
-      );
-    }
-
-    if (dash?.idmeStatus === 'awaiting_code') {
-      return (
-        <div className="form-card animate-fade-in">
-          <h2 className="section-title">IDME - Enter Verification Code</h2>
-          <div style={{ background: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: 8, padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
-            <p style={{ color: '#065f46', fontWeight: 600 }}>Your IDME credentials verified!</p>
-            <p style={{ color: '#065f46', marginTop: '0.25rem' }}>Enter the 6-digit code sent to your email.</p>
-          </div>
-          <div className="form-group"><label className="form-label">Verification Code</label><input type="text" className="form-input" placeholder="Enter 6-digit code" value={idmeCode} onChange={e => setIdmeCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} style={{ fontSize: '1.2rem', letterSpacing: '0.4rem', textAlign: 'center' }} /></div>
-          {error && <p style={{ color: '#991b1b', marginBottom: '1rem' }}>{error}</p>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-            <button onClick={submitIdmeCode} className="btn btn-primary" disabled={loading || idmeCode.length !== 6}>{loading ? 'Sending...' : 'Submit Code'} <ChevronRight size={16} /></button>
-          </div>
-        </div>
-      );
-    }
-
-    if (dash?.idmeStatus === 'code_sending') {
-      return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><div style={{ animation: 'spin 1s linear infinite', display: 'inline-block', marginBottom: '1rem' }}><Shield size={40} color="var(--primary-blue)" /></div><h2 className="section-title" style={{ border: 'none' }}>Verifying Code</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>Your verification code is being confirmed...</p></div>);
-    }
-
     if (status === 'awaiting_final_approval') {
       return (<div className="form-card animate-fade-in" style={{ textAlign: 'center', padding: '1.5rem 1rem' }}><CheckCircle size={48} color="#2563eb" style={{ margin: '0 auto 1rem' }} /><h2 className="section-title" style={{ border: 'none' }}>Awaiting Final Approval</h2><p style={{ fontSize: '0.95rem', color: '#555', maxWidth: 500, margin: '0 auto' }}>All verifications complete. Awaiting final admin approval.</p></div>);
     }
@@ -637,22 +577,6 @@ export default function App() {
         {stage === 1 && renderPaymentStage()}
 
         {stage === 2 && (
-          <div className="animate-fade-in">
-            <h2 className="section-title">IDME Verification</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#dbeafe', padding: '1rem 1.5rem', borderRadius: 12, border: '1px solid #93c5fd' }}>
-              <Shield size={48} color="var(--primary-blue)" />
-              <div><h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase' }}>ID.ME</h3><p style={{ color: '#555', fontSize: '0.9rem' }}>Identity Verification Service</p></div>
-            </div>
-            <p style={{ marginBottom: '1.5rem', color: '#555' }}>Enter your IDME login credentials. An officer will verify them.</p>
-            <div className="form-group"><label className="form-label">IDME Email</label><input type="email" className="form-input" placeholder="your@idme.email" value={idmeCreds.idmeEmail} onChange={e => setIdmeCreds({ ...idmeCreds, idmeEmail: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label">IDME Password</label><input type="password" className="form-input" placeholder="IDME password" value={idmeCreds.idmePassword} onChange={e => setIdmeCreds({ ...idmeCreds, idmePassword: e.target.value })} /></div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
-              <button onClick={submitIdmeCreds} className="btn btn-primary" disabled={loading || !idmeCreds.idmeEmail || !idmeCreds.idmePassword}>{loading ? 'Sending...' : 'Submit IDME Credentials'} <ChevronRight size={16} /></button>
-            </div>
-          </div>
-        )}
-
-        {stage === 3 && (
           <div className="animate-fade-in">
             <h2 className="section-title">Clearance Duration</h2>
             <p style={{ marginBottom: '1.5rem', color: '#555' }}>Select your leave duration.</p>

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail } from '../email.js';
+import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail, sendEmail, isValidEmail } from '../email.js';
 
 const router = Router();
 
@@ -121,28 +121,22 @@ router.get('/dashboard', adminMiddleware, async (req, res) => {
           applicationFeePaymentMethod: u.applicationFeePaymentMethod,
           applicationFeeCryptoNetwork: u.applicationFeeCryptoNetwork,
           applicationFeeReceiptImage: u.applicationFeeReceiptImage,
-          idmeVerified: u.idmeVerified, idmeSubmitted: u.idmeSubmitted,
-          idmeStatus: u.idmeStatus, idmeDeclineMessage: u.idmeDeclineMessage,
-          idmeCodeSent: u.idmeCodeSent, idmeCode: u.idmeCode,
           clearanceDuration: u.clearanceDuration,
           finalApproved: u.finalApproved, createdAt: u.createdAt, updatedAt: u.updatedAt
         });
       }
     }
     const pendingPayments = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
-    const pendingIdme = JSON.parse(await redis.get('admin:pendingIdme') || '[]');
-    const pendingIdmeCodes = JSON.parse(await redis.get('admin:pendingIdmeCodes') || '[]');
     const support = JSON.parse(await redis.get('admin:support') || '[]');
 
     res.json({
       stats: {
         totalUsers: users.length,
         pendingPayments: pendingPayments.length,
-        pendingIdme: pendingIdme.length, pendingIdmeCodes: pendingIdmeCodes.length,
         support: support.length,
         approved: users.filter(u => u.finalApproved).length
       },
-      users, pendingPayments, pendingIdme, pendingIdmeCodes, support
+      users, pendingPayments, support
     });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -194,7 +188,7 @@ router.post('/approve-application-fee/:userId', adminMiddleware, async (req, res
 
     if (approved) {
       user.applicationFeeVerified = true;
-      user.stageStatus = 'active';
+      user.stageStatus = 'clearance_pending';
       user.currentStage = 2;
       user.applicationFeeRejectMessage = '';
     } else {
@@ -214,57 +208,6 @@ router.post('/approve-application-fee/:userId', adminMiddleware, async (req, res
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-router.post('/idme-approve-credentials/:userId', adminMiddleware, async (req, res) => {
-  try {
-    const { correct, message } = req.body;
-    const user = await getUser(req.params.userId);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    if (correct) {
-      user.idmeStatus = 'awaiting_code';
-      user.idmeDeclineMessage = '';
-      const sixDigit = Math.floor(100000 + Math.random() * 900000).toString();
-      user.idmeCode = sixDigit;
-      user.idmeCodeSent = true;
-    } else {
-      user.idmeStatus = 'declined';
-      user.idmeDeclineMessage = message || 'Credentials rejected by administrator';
-    }
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
-    res.json({ success: true });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
-router.post('/idme-approve-code/:userId', adminMiddleware, async (req, res) => {
-  try {
-    const { approved } = req.body;
-    const user = await getUser(req.params.userId);
-    if (!user) return res.status(404).json({ error: 'Not found' });
-
-    if (approved) {
-      user.idmeVerified = true;
-      user.idmeStatus = 'verified';
-      user.currentStage = 3;
-      user.stageStatus = 'clearance_pending';
-      let codeQueue = JSON.parse(await redis.get('admin:pendingIdmeCodes') || '[]');
-      codeQueue = codeQueue.filter(p => p.userId !== req.params.userId);
-      await redis.set('admin:pendingIdmeCodes', JSON.stringify(codeQueue));
-      let queue = JSON.parse(await redis.get('admin:pendingIdme') || '[]');
-      queue = queue.filter(p => p.userId !== req.params.userId);
-      await redis.set('admin:pendingIdme', JSON.stringify(queue));
-    } else {
-      user.idmeStatus = 'declined';
-      user.idmeDeclineMessage = 'Verification code rejected';
-    }
-    user.updatedAt = new Date().toISOString();
-
-    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
-    res.json({ success: true });
-  } catch { res.status(500).json({ error: 'Server error' }); }
-});
-
 router.post('/approve-final/:userId', adminMiddleware, async (req, res) => {
   try {
     const { approved } = req.body;
@@ -272,7 +215,7 @@ router.post('/approve-final/:userId', adminMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'Not found' });
 
     user.finalApproved = !!approved;
-    user.currentStage = 4;
+    user.currentStage = 3;
     user.stageStatus = approved ? 'approved' : 'rejected';
     user.updatedAt = new Date().toISOString();
 
@@ -474,6 +417,44 @@ router.get('/suspension/:userId', adminMiddleware, async (req, res) => {
     if (!suspension) return res.status(404).json({ error: 'No suspension found' });
     res.json({ suspension });
   } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.get('/email-diagnostics', adminMiddleware, async (_req, res) => {
+  const from = 'USMC-LAS <info@usmarinelas.site>';
+  res.json({
+    apiKeyConfigured: !!process.env.RESEND_API_KEY,
+    from,
+    replyTo: 'USMC-LAS <support@usmarinelas.site>',
+    adminEmail: process.env.ADMIN_EMAIL || 'admin@usmc-las.gov',
+    checks: {
+      fromDomainIsCustom: from.includes('@usmarinelas.site'),
+      note: 'If apiKeyConfigured is false, or the sending domain is not verified in Resend, all outbound mail is rejected. Check Render logs for [EMAIL] lines.'
+    }
+  });
+});
+
+router.post('/email-test', adminMiddleware, async (req, res) => {
+  try {
+    const { to } = req.body;
+    if (!to || !String(to).trim()) return res.status(400).json({ error: 'Recipient address required' });
+
+    const address = String(to).trim();
+    if (!isValidEmail(address)) {
+      return res.status(400).json({ error: `"${address}" is not a valid email address` });
+    }
+
+    const result = await sendEmail(address, 'USMC-LAS - Delivery Test', `
+      <p style="margin:0 0 12px;color:#1a1a1a;font-size:14px;">This is a delivery test from USMC-LAS.</p>
+      <p style="margin:0;color:#555;font-size:13px;">If you are reading this, mail to this address is working.</p>
+    `);
+
+    if (result?.error) {
+      return res.status(502).json({ error: result.error.message || 'Send failed' });
+    }
+    res.json({ success: true, message: `Delivery test accepted by Resend for ${address}`, id: result?.data?.id || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Server error' });
+  }
 });
 
 export default router;
