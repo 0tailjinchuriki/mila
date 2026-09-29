@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail, sendEmail, isValidEmail, getEmailLog, logEmail, stripTags, syncSentFromResend, retryFailedEmails } from '../email.js';
+import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail, sendEmail, isValidEmail, getEmailLog, logEmail, stripTags, syncSentFromResend, retryFailedEmails, refreshEmailStatuses, RESENDABLE } from '../email.js';
 
 const router = Router();
 
@@ -459,16 +459,33 @@ router.post('/email-test', adminMiddleware, async (req, res) => {
   }
 });
 
+router.post('/emails/refresh-status', adminMiddleware, async (_req, res) => {
+  try {
+    const r = await refreshEmailStatuses(40);
+    res.json({ success: true, ...r });
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Refresh failed' });
+  }
+});
+
 router.get('/emails', adminMiddleware, async (_req, res) => {
   try {
     const emails = await getEmailLog();
+    const byStatus = {};
+    for (const e of emails) byStatus[e.status] = (byStatus[e.status] || 0) + 1;
+    const resendable = emails.filter(e => e.dir === 'sent' && RESENDABLE.has(e.status)).length;
     res.json({
       emails,
+      resendable,
       counts: {
         total: emails.length,
         sent: emails.filter(e => e.dir === 'sent').length,
         received: emails.filter(e => e.dir === 'received').length,
-        failed: emails.filter(e => e.status === 'failed').length
+        delivered: byStatus.delivered || 0,
+        bounced: byStatus.bounced || 0,
+        suppressed: byStatus.suppressed || 0,
+        complained: byStatus.complained || 0,
+        failed: (byStatus.failed || 0) + (byStatus.invalid || 0) + (byStatus.transient || 0) + (byStatus.domain || 0) + (byStatus.config || 0)
       }
     });
   } catch { res.status(500).json({ error: 'Server error' }); }

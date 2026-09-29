@@ -283,7 +283,8 @@ let emailAttachments=[];
 function renderEmails(){
   emailAttachments=[];
   document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Emails</h1><p>Mailbox and outbound email composition</p></div>
-  <div class="card" style="margin-bottom:1.25rem"><div class="card-hdr"><h3>Mailbox</h3><div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><button class="btn btn-o btn-sm" onclick="syncMailbox()">Sync from Resend</button><button class="btn btn-o btn-sm" onclick="retryFailed()">Resend Failed</button><button class="btn btn-o btn-sm" onclick="loadMailbox()">Refresh</button><button class="btn btn-d btn-sm" onclick="clearMailbox()">Clear</button></div></div><div class="card-body">
+  <div class="card" style="margin-bottom:1.25rem"><div class="card-hdr"><h3>Mailbox</h3><div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><button class="btn btn-o btn-sm" onclick="syncMailbox()">Sync from Resend</button><button class="btn btn-o btn-sm" id="retryBtn" onclick="retryFailed()" style="display:none">Resend Failed</button><button class="btn btn-o btn-sm" onclick="refreshStatuses()">Check Delivery</button><button class="btn btn-o btn-sm" onclick="loadMailbox()">Refresh</button><button class="btn btn-d btn-sm" onclick="clearMailbox()">Clear</button></div>
+    <div id="statRow" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.85rem"></div></div><div class="card-body">
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
       <button id="tabSent" class="btn btn-o btn-sm" onclick="setEmailTab('sent')">Sent</button>
       <button id="tabRecv" class="btn btn-o btn-sm" onclick="setEmailTab('received')">Received</button>
@@ -319,6 +320,14 @@ function renderEmails(){
 
 let emailTab='sent',emailCache=[];
 
+const ST={
+  sent:{l:'Sent',c:'badge-p'},delivered:{l:'Delivered',c:'badge-ok'},delayed:{l:'Delayed',c:'badge-p'},
+  bounced:{l:'Bounced',c:'badge-r'},suppressed:{l:'Suppressed',c:'badge-r'},complained:{l:'Complained',c:'badge-r'},
+  invalid:{l:'Invalid',c:'badge-r'},transient:{l:'Transient',c:'badge-p'},domain:{l:'Domain error',c:'badge-r'},
+  config:{l:'Config error',c:'badge-r'},failed:{l:'Failed',c:'badge-r'},received:{l:'Received',c:'badge-ok'}
+};
+const st=e=>ST[e.status]||{l:e.status||'Unknown',c:'badge-p'};
+
 function setEmailTab(t){emailTab=t;loadMailbox()}
 
 async function loadMailbox(){
@@ -330,8 +339,11 @@ async function loadMailbox(){
     const ts=document.getElementById('tabSent'),tr=document.getElementById('tabRecv');
     if(ts){ts.className='btn btn-sm btn-o';ts.style.cssText=emailTab==='sent'?'background:var(--primary);color:#fff':'';ts.textContent=`Sent (${c.sent||0})`}
     if(tr){tr.className='btn btn-sm btn-o';tr.style.cssText=emailTab==='received'?'background:var(--primary);color:#fff':'';tr.textContent=`Received (${c.received||0})`}
-    const cc=document.getElementById('mailCount');
-    if(cc)cc.textContent=c.failed?`${c.failed} failed delivery attempt(s)`:'';
+    const rb=document.getElementById('retryBtn');
+    if(rb){const n=c.bounced+c.suppressed;rb.style.display=n?'inline-flex':'none';rb.textContent=`Resend Failed (${n})`}
+    const sr=document.getElementById('statRow');
+    if(sr){const p=[['delivered','Delivered','badge-ok'],['bounced','Bounced','badge-r'],['suppressed','Suppressed','badge-r'],['complained','Complained','badge-r'],['delayed','Delayed','badge-p'],['failed','Other failures','badge-r']];
+      sr.innerHTML=p.filter(x=>c[x[0]]).map(x=>`<span class="badge ${x[2]}">${x[1]}: ${c[x[0]]}</span>`).join('')}
     renderMailbox();
   }catch(e){el.innerHTML=`<p style="color:var(--danger);font-size:.85rem">${esc(e.message)}</p>`}
 }
@@ -347,7 +359,7 @@ function renderMailbox(){
   }
   el.innerHTML=`<div style="display:flex;flex-direction:column;gap:.5rem;max-height:520px;overflow-y:auto">${list.map(e=>`
     <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;background:#f9fafb;flex-wrap:wrap">
-      <span class="badge ${e.status==='failed'?'badge-r':'badge-ok'}">${e.status==='failed'?'Failed':'Sent'}</span>
+      <span class="badge ${st(e).c}">${st(e).l}</span>
       <strong style="font-size:.85rem;flex:1;min-width:150px">${esc(e.subject||'(no subject)')}</strong>
       <span style="font-size:.75rem;color:var(--muted)">${esc(emailTab==='sent'?'To: '+e.to:'From: '+e.from)}</span>
       <span style="font-size:.72rem;color:var(--muted)">${new Date(e.at).toLocaleString()}</span>
@@ -369,7 +381,7 @@ function viewEmail(id){
     <div class="dg" style="margin-bottom:1rem">
       <div class="di"><label>From</label><p>${esc(e.from||'-')}</p></div>
       <div class="di"><label>To</label><p>${esc(e.to||'-')}</p></div>
-      <div class="di"><label>Status</label><p>${e.status==='failed'?'Failed':'Sent'}</p></div>
+      <div class="di"><label>Status</label><p><span class="badge ${st(e).c}">${st(e).l}</span>${e.lastEvent?` <span style="font-size:.75rem;color:var(--muted)">(${esc(e.lastEvent)})</span>`:''}</p></div>
       <div class="di"><label>Date</label><p>${new Date(e.at).toLocaleString()}</p></div>
     </div>
     ${hasHtml?`<iframe id="evFrame" sandbox style="width:100%;height:440px;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`
@@ -394,8 +406,19 @@ async function syncMailbox(){
   finally{if(b){b.disabled=false;b.textContent='Sync from Resend'}}
 }
 
+async function refreshStatuses(){
+  const btn=[...document.querySelectorAll('button')].find(x=>x.textContent==='Check Delivery');
+  if(btn){btn.disabled=true;btn.textContent='Checking...'}
+  try{
+    const d=await api('/admin/emails/refresh-status','POST');
+    toast(`Checked ${d.checked} message(s), ${d.updated} status update(s)`);
+    loadMailbox();
+  }catch(e){toast(e.message,true)}
+  finally{if(btn){btn.disabled=false;btn.textContent='Check Delivery'}}
+}
+
 async function retryFailed(){
-  if(!confirm('Resend every failed email?\n\nTransient failures (timeouts, rate limits, temporary rejections) will be retried.\nPermanent failures (nonexistent mailbox, suppressed or blocked address) will NOT be retried - resending to those cannot succeed and repeated attempts damage sender reputation.\n\nPermanently undeliverable addresses must be removed from the Suppressions list in the Resend dashboard.'))return;
+  if(!confirm('Resend failed emails?\n\nBounced and other transient failures will be retried.\nSuppressed addresses CANNOT succeed until you remove them from Resend > Suppressions - they will be reported back as still undeliverable.\n\nRun "Check Delivery" first so statuses are accurate before retrying.'))return;
   const b=[...document.querySelectorAll('button')].find(x=>x.textContent==='Resend Failed');
   if(b){b.disabled=true;b.textContent='Sending...'}
   try{

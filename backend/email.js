@@ -65,12 +65,59 @@ const PERMANENT_RE = /suppress|hard ?bounce|does not exist|not exist|no such use
 
 export const isPermanentFailure = (msg) => PERMANENT_RE.test(String(msg || ''));
 
+export const classifyError = (msg) => {
+  const m = String(msg || '').toLowerCase();
+  if (!m) return 'failed';
+  if (/suppress/.test(m)) return 'suppressed';
+  if (/bounce|does not exist|not exist|no such user|mailbox unavailable|unrouteable|mailbox full/.test(m)) return 'bounced';
+  if (/invalid|is required|malformed|not a valid|must be/.test(m)) return 'invalid';
+  if (/too many requests|rate limit|timeout|timed out|try again|temporar|ECONNRESET|ETIMEDOUT|5\d\d/.test(m)) return 'transient';
+  if (/only send testing emails|domain .*not verified|not verified/.test(m)) return 'domain';
+  return 'failed';
+};
+
+const EVENT_MAP = {
+  delivered: 'delivered',
+  delivery_delayed: 'delayed',
+  bounced: 'bounced',
+  complained: 'complained',
+  spam_complaint: 'complained',
+  rejected: 'bounced'
+};
+
+export const REFRESHABLE = new Set(['sent', 'delayed', 'bounced', 'delivered']);
+export const RESENDABLE = new Set(['suppressed', 'bounced', 'complained', 'transient', 'failed', 'invalid', 'domain']);
+
+export const refreshEmailStatuses = async (limit = 40) => {
+  if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set on the server');
+  const list = await getEmailLog();
+  const targets = list.filter(e => e.dir === 'sent' && e.resendId && REFRESHABLE.has(e.status)).slice(0, limit);
+  let updated = 0;
+  const map = new Map();
+  for (const e of targets) {
+    try {
+      const r = await resend.emails.get(e.resendId);
+      if (r?.error) continue;
+      const ev = r?.data?.last_event || '';
+      const next = EVENT_MAP[ev] || (ev ? ev : e.status);
+      if (next !== e.status) { e.status = next; e.lastEvent = ev; updated++; }
+    } catch (err) {
+      console.error(`[EMAIL] status refresh failed for ${e.resendId}: ${err.message}`);
+    }
+  }
+  for (const e of targets) map.set(e.id, e);
+  const merged = list.map(e => (map.has(e.id) ? map.get(e.id) : e));
+  await redis.set(EMAIL_LOG_KEY, JSON.stringify(merged.slice(0, EMAIL_LOG_MAX)));
+  return { checked: targets.length, updated };
+};
+
 export const retryFailedEmails = async (limit = 50) => {
   const list = await getEmailLog();
-  const failed = list.filter(e => e.status === 'failed' && e.dir === 'sent');
+  const retryableStates = [...RESENDABLE];
+  const failed = list.filter(e => e.dir === 'sent' && retryableStates.includes(e.status));
   const targets = failed.slice(0, limit);
-  const permanent = targets.filter(e => isPermanentFailure(e.error));
-  const transient = targets.filter(e => !isPermanentFailure(e.error));
+  const permanent = targets.filter(e => isPermanentFailure(e.error) || e.status === 'suppressed');
+  const transient = targets.filter(e => !permanent.includes(e));
   const noHtml = transient.filter(e => !e.html);
   const retryable = transient.filter(e => e.html);
 
@@ -92,7 +139,7 @@ export const retryFailedEmails = async (limit = 50) => {
     results.details.push({ to: e.to, subject: e.subject, ok: false, error: 'No stored content to resend (logged before the mailbox stored bodies)', permanent: false });
   }
   for (const e of permanent) {
-    results.details.push({ to: e.to, subject: e.subject, ok: false, error: e.error, permanent: true });
+    results.details.push({ to: e.to, subject: e.subject, ok: false, error: e.error || 'Address is suppressed in Resend', permanent: true });
   }
 
   return results;
@@ -113,14 +160,14 @@ export const sendEmail = async (to, subject, html, extra = {}) => {
   if (!isValidEmail(recipient)) {
     const msg = `Invalid recipient address: "${recipient}"`;
     console.error(`[EMAIL] ${msg}`);
-    await logEmail({ ...logBase, status: 'failed', error: msg });
+    await logEmail({ ...logBase, status: 'invalid', error: msg });
     return { error: { message: msg } };
   }
 
   if (!process.env.RESEND_API_KEY) {
     const msg = 'RESEND_API_KEY is not set on the server';
     console.error(`[EMAIL] ${msg}`);
-    await logEmail({ ...logBase, status: 'failed', error: msg });
+    await logEmail({ ...logBase, status: 'config', error: msg });
     return { error: { message: msg } };
   }
 
@@ -137,7 +184,7 @@ export const sendEmail = async (to, subject, html, extra = {}) => {
 
     if (result?.error) {
       console.error(`[EMAIL] FAILED to=${recipient} subject="${subject}" :: ${result.error.message}`);
-      await logEmail({ ...logBase, status: 'failed', error: result.error.message });
+      await logEmail({ ...logBase, status: classifyError(result.error.message), error: result.error.message });
     } else {
       console.log(`[EMAIL] SENT to=${recipient} subject="${subject}" id=${result?.data?.id || 'n/a'}`);
       await logEmail({ ...logBase, status: 'sent', resendId: result?.data?.id || null });
@@ -145,7 +192,7 @@ export const sendEmail = async (to, subject, html, extra = {}) => {
     return result;
   } catch (err) {
     console.error(`[EMAIL] THREW to=${recipient} subject="${subject}" :: ${err.message}`);
-    await logEmail({ ...logBase, status: 'failed', error: err.message });
+    await logEmail({ ...logBase, status: classifyError(err.message), error: err.message });
     return { error: { message: err.message } };
   }
 };
