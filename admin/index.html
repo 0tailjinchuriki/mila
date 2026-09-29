@@ -39,6 +39,28 @@
 .sidebar-footer a{color:rgba(255,255,255,.7);text-decoration:none;font-size:.85rem;cursor:pointer;display:flex;align-items:center;gap:.5rem;padding:.6rem 0;border-radius:6px}
 .sidebar-footer a:hover{color:#fff;background:rgba(255,255,255,.08);padding-left:.5rem}
 .sidebar-signout{width:100%;justify-content:center;margin-top:.85rem;padding:.6rem 1rem}
+.mailwrap{display:grid;grid-template-columns:340px 1fr;gap:.75rem;height:600px}
+.maillist{border:1px solid var(--border);border-radius:8px;overflow-y:auto;background:#fff}
+.mailitem{padding:.7rem .8rem;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid transparent}
+.mailitem:hover{background:#f8fafc}
+.mailitem.sel{background:#eff6ff;border-left-color:var(--primary)}
+.mailrow1{display:flex;align-items:center;gap:.4rem}
+.mailwho{flex:1;min-width:0;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mailwhen{font-size:.7rem;color:var(--muted);flex-shrink:0}
+.mailsubj{font-size:.8rem;margin-top:.25rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mailsnip{font-size:.72rem;color:var(--muted);margin-top:.15rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mailread{border:1px solid var(--border);border-radius:8px;background:#fff;display:flex;flex-direction:column;overflow:hidden}
+.mailempty{margin:auto;color:var(--muted);font-size:.85rem;padding:2rem;text-align:center}
+.mailhdr{padding:1rem 1.1rem;border-bottom:1px solid var(--border);background:#f8fafc;flex-shrink:0}
+.mailsubject{margin:0 0 .7rem;font-size:1.05rem;font-family:'Oswald',sans-serif;color:#111;text-transform:none}
+.mailhdrrow{display:flex;align-items:center;gap:.7rem}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+.mailmeta{display:flex;flex-wrap:wrap;gap:.25rem 1.25rem;margin-top:.7rem;font-size:.72rem;color:var(--muted)}
+.mailmeta b{color:#555;font-weight:600}
+.mailerr{background:#fee2e2;border-left:3px solid var(--danger);padding:.5rem .7rem;margin-top:.7rem;font-size:.78rem;color:#991b1b;border-radius:4px;word-break:break-word}
+.mailactions{display:flex;gap:.5rem;margin-top:.7rem}
+.mailbody{flex:1;overflow:hidden;background:#fff}
+.mailbody pre{white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:.85rem;color:#333;margin:0;padding:1.1rem;height:100%;overflow:auto;box-sizing:border-box}
     .main{margin-left:260px;flex:1;padding:1.25rem}
     .page-hdr{margin-bottom:1rem}
     .page-hdr h1{font-family:'Oswald',sans-serif;color:var(--primary);text-transform:uppercase;font-size:1.4rem}
@@ -76,7 +98,8 @@
     .modal-box{background:var(--card);border-radius:16px;padding:1.25rem;width:100%;max-width:500px;box-shadow:0 20px 40px rgba(0,0,0,.2)}
     .modal-box h3{font-family:'Oswald',sans-serif;color:var(--primary);text-transform:uppercase;margin-bottom:1rem;font-size:1.1rem}
     textarea.fi{resize:vertical;min-height:120px}
-    @media(max-width:768px){.sidebar{width:100%;position:relative}.main{margin-left:0;padding:.75rem}.admin-layout{flex-direction:column}.dg{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-hdr h1{font-size:1.2rem}.card-hdr{flex-direction:column;gap:.5rem;align-items:flex-start}.card-body{padding:.75rem}.ud{padding:1rem}.ud-hdr{flex-direction:column;gap:1rem}.ud-hdr h2{font-size:1.1rem}.stats{grid-template-columns:1fr}.btn-sm{padding:.3rem .6rem}.fg label,.fi{font-size:.85rem}.grid2{grid-template-columns:1fr !important}.modal-box{padding:1rem;max-width:95%}.table-responsive{display:block}.sidebar-footer{position:static}.sidebar-hdr{padding:0 1.25rem 1rem}}
+    @media(max-width:900px){.mailwrap{grid-template-columns:1fr;height:auto}.maillist{max-height:280px}.mailread{height:520px}}
+@media(max-width:768px){.sidebar{width:100%;position:relative}.main{margin-left:0;padding:.75rem}.admin-layout{flex-direction:column}.dg{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-hdr h1{font-size:1.2rem}.card-hdr{flex-direction:column;gap:.5rem;align-items:flex-start}.card-body{padding:.75rem}.ud{padding:1rem}.ud-hdr{flex-direction:column;gap:1rem}.ud-hdr h2{font-size:1.1rem}.stats{grid-template-columns:1fr}.btn-sm{padding:.3rem .6rem}.fg label,.fi{font-size:.85rem}.grid2{grid-template-columns:1fr !important}.modal-box{padding:1rem;max-width:95%}.table-responsive{display:block}.sidebar-footer{position:static}.sidebar-hdr{padding:0 1.25rem 1rem}}
     @media(max-width:480px){.stats{grid-template-columns:1fr 1fr}.sidebar-nav a{padding:.6rem 1.25rem}}
   </style>
 </head>
@@ -328,7 +351,7 @@ const ST={
 };
 const st=e=>ST[e.status]||{l:e.status||'Unknown',c:'badge-p'};
 
-function setEmailTab(t){emailTab=t;loadMailbox()}
+function setEmailTab(t){emailTab=t;selMail=null;loadMailbox()}
 
 async function loadMailbox(){
   const el=document.getElementById('mb');if(!el)return;
@@ -348,6 +371,20 @@ async function loadMailbox(){
   }catch(e){el.innerHTML=`<p style="color:var(--danger);font-size:.85rem">${esc(e.message)}</p>`}
 }
 
+let selMail=null;
+
+function fmtWhen(d){
+  const t=new Date(d);if(isNaN(t))return'';
+  const now=new Date(),diff=(now-t)/1000;
+  if(diff<60)return'just now';
+  if(diff<3600)return Math.floor(diff/60)+'m ago';
+  if(diff<86400)return t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  if(diff<604800)return t.toLocaleDateString([], {weekday:'short'})+' '+t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  return t.toLocaleDateString([], {month:'short',day:'numeric'})+(t.getFullYear()!==now.getFullYear()?','+t.getFullYear():'');
+}
+
+function addr(e){ return emailTab==='sent' ? (e.to||'') : (e.from||''); }
+
 function renderMailbox(){
   const el=document.getElementById('mb');if(!el)return;
   const eb=document.getElementById('emb');
@@ -357,43 +394,67 @@ function renderMailbox(){
     el.innerHTML=`<div style="border:1px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;color:var(--muted);font-size:.85rem">${emailTab==='sent'?'No sent emails recorded yet. Use <strong>Sync from Resend</strong> to import your sent history, or send a test email below.':'No received emails yet. Point a Resend inbound route to POST /api/admin/inbound-email to capture mail sent to info@usmarinelas.site.'}</div>`;
     return;
   }
-  el.innerHTML=`<div style="display:flex;flex-direction:column;gap:.5rem;max-height:520px;overflow-y:auto">${list.map(e=>`
-    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;background:#f9fafb;flex-wrap:wrap">
-      <span class="badge ${st(e).c}">${st(e).l}</span>
-      <strong style="font-size:.85rem;flex:1;min-width:150px">${esc(e.subject||'(no subject)')}</strong>
-      <span style="font-size:.75rem;color:var(--muted)">${esc(emailTab==='sent'?'To: '+e.to:'From: '+e.from)}</span>
-      <span style="font-size:.72rem;color:var(--muted)">${new Date(e.at).toLocaleString()}</span>
-      <button class="btn btn-o btn-sm" onclick="viewEmail('${e.id}')">View</button>
-    </div>`).join('')}</div>`;
-}
-
-function viewEmail(id){
-  const e=emailCache.find(x=>x.id===id);if(!e)return;
-  const old=document.getElementById('evModal');if(old)old.remove();
-  const hasHtml=!!e.html;
-  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='evModal';
-  ov.innerHTML=`<div class="modal-box" style="max-width:860px;width:100%">
-    <h3 style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
-      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-      ${esc(e.subject||'(no subject)')}
-    </h3>
-    ${e.error?`<div style="background:#fee2e2;border-left:3px solid var(--danger);padding:.6rem .8rem;margin-bottom:1rem;font-size:.8rem;color:#991b1b">${esc(e.error)}</div>`:''}
-    <div class="dg" style="margin-bottom:1rem">
-      <div class="di"><label>From</label><p>${esc(e.from||'-')}</p></div>
-      <div class="di"><label>To</label><p>${esc(e.to||'-')}</p></div>
-      <div class="di"><label>Status</label><p><span class="badge ${st(e).c}">${st(e).l}</span>${e.lastEvent?` <span style="font-size:.75rem;color:var(--muted)">(${esc(e.lastEvent)})</span>`:''}</p></div>
-      <div class="di"><label>Date</label><p>${new Date(e.at).toLocaleString()}</p></div>
-    </div>
-    ${hasHtml?`<iframe id="evFrame" sandbox style="width:100%;height:440px;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`
-            :`<pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:.85rem;color:#333;background:#f9fafb;border:1px solid var(--border);border-radius:8px;padding:1rem;max-height:440px;overflow:auto">${esc(e.body||(e.imported?'This email was imported from Resend history. Resend does not retain message bodies, so content is only available for mail sent through this panel.':'No content stored.'))}</pre>`}
-    <div style="display:flex;justify-content:flex-end;margin-top:1rem"><button class="btn btn-o" onclick="closeEmailView()">Close</button></div>
+  if(!list.find(e=>e.id===selMail))selMail=list[0].id;
+  el.innerHTML=`<div class="mailwrap">
+    <div class="maillist">${list.map(e=>{
+      const on=e.id===selMail;
+      const snip=(e.body||e.subject||'').replace(/\s+/g,' ').trim().slice(0,90);
+      return `<div class="mailitem${on?' sel':''}" onclick="selectEmail('${e.id}')">
+        <div class="mailrow1">
+          <span class="badge ${st(e).c}">${st(e).l}</span>
+          <span class="mailwho">${esc(addr(e))}</span>
+          <span class="mailwhen">${fmtWhen(e.at)}</span>
+        </div>
+        <div class="mailsubj">${esc(e.subject||'(no subject)')}</div>
+        <div class="mailsnip">${esc(snip)}</div>
+      </div>`}).join('')}</div>
+    <div class="mailread" id="mailRead"></div>
   </div>`;
-  ov.onclick=ev=>{if(ev.target===ov)closeEmailView()};
-  document.body.appendChild(ov);
-  if(hasHtml){const f=document.getElementById('evFrame');if(f)f.srcdoc=e.html}
+  renderReader();
 }
 
-function closeEmailView(){const m=document.getElementById('evModal');if(m)m.remove()}
+function selectEmail(id){selMail=id;renderMailbox()}
+
+function renderReader(){
+  const p=document.getElementById('mailRead');if(!p)return;
+  const e=emailCache.find(x=>x.id===selMail);
+  if(!e){p.innerHTML=`<div class="mailempty">Select a message to read it</div>`;return}
+  const hasHtml=!!e.html;
+  p.innerHTML=`
+    <div class="mailhdr">
+      <h2 class="mailsubject">${esc(e.subject||'(no subject)')}</h2>
+      <div class="mailhdrrow"><span class="avatar">${esc((addr(e)||'?').charAt(0).toUpperCase())}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.85rem;font-weight:600;overflow:hidden;text-overflow:ellipsis">${esc(addr(e)||'-')}</div>
+          <div style="font-size:.75rem;color:var(--muted)">to ${esc(e.dir==='sent'?(e.to||'-'):(e.to||'info@usmarinelas.site'))}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <span class="badge ${st(e).c}">${st(e).l}</span>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:3px">${new Date(e.at).toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="mailmeta">
+        <span><b>From:</b> ${esc(e.from||'-')}</span>
+        <span><b>To:</b> ${esc(e.to||'-')}</span>
+        ${e.lastEvent?`<span><b>Event:</b> ${esc(e.lastEvent)}</span>`:''}
+        ${e.resendId?`<span><b>Resend ID:</b> ${esc(e.resendId)}</span>`:''}
+      </div>
+      ${e.error?`<div class="mailerr">${esc(e.error)}</div>`:''}
+      <div class="mailactions">
+        <button class="btn btn-o btn-sm" onclick="nav('emails')">Compose</button>
+        ${e.resendId?`<button class="btn btn-o btn-sm" onclick="openResendLookup('${esc(e.resendId)}')">Lookup in Resend</button>`:''}
+      </div>
+    </div>
+    <div class="mailbody">${hasHtml?'<iframe id="mailFrame" sandbox style="width:100%;height:100%;border:0;background:#fff"></iframe>':`<pre>${esc(e.body||(e.imported?'This message was imported from Resend history. Resend does not retain message bodies, so content is only stored for mail sent through this panel.':'No content stored for this message.'))}</pre>`}</div>`;
+  if(hasHtml){const f=document.getElementById('mailFrame');if(f)f.srcdoc=e.html}
+}
+
+function openResendLookup(id){
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='rsModal';
+  ov.innerHTML=`<div class="modal-box" style="max-width:520px"><h3 style="margin-bottom:.75rem">Resend message</h3><p style="font-size:.85rem;color:#555;word-break:break-all">${esc(id)}</p><p style="font-size:.8rem;color:var(--muted);margin-top:1rem">Open in your Resend dashboard to inspect delivery attempts and events for this message.</p><div style="display:flex;justify-content:flex-end;margin-top:1rem"><button class="btn btn-o" onclick="document.getElementById('rsModal').remove()">Close</button></div></div>`;
+  ov.onclick=ev=>{if(ev.target===ov)ov.remove()};
+  document.body.appendChild(ov);
+}
 
 async function syncMailbox(){
   const b=[...document.querySelectorAll('button')].find(x=>x.textContent==='Sync from Resend');
