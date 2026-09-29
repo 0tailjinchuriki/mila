@@ -283,7 +283,7 @@ let emailAttachments=[];
 function renderEmails(){
   emailAttachments=[];
   document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Emails</h1><p>Mailbox and outbound email composition</p></div>
-  <div class="card" style="margin-bottom:1.25rem"><div class="card-hdr"><h3>Mailbox</h3><div style="display:flex;gap:.5rem;align-items:center"><button class="btn btn-o btn-sm" onclick="syncMailbox()">Sync from Resend</button><button class="btn btn-o btn-sm" onclick="loadMailbox()">Refresh</button><button class="btn btn-d btn-sm" onclick="clearMailbox()">Clear</button></div></div><div class="card-body">
+  <div class="card" style="margin-bottom:1.25rem"><div class="card-hdr"><h3>Mailbox</h3><div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><button class="btn btn-o btn-sm" onclick="syncMailbox()">Sync from Resend</button><button class="btn btn-o btn-sm" onclick="retryFailed()">Resend Failed</button><button class="btn btn-o btn-sm" onclick="loadMailbox()">Refresh</button><button class="btn btn-d btn-sm" onclick="clearMailbox()">Clear</button></div></div><div class="card-body">
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
       <button id="tabSent" class="btn btn-o btn-sm" onclick="setEmailTab('sent')">Sent</button>
       <button id="tabRecv" class="btn btn-o btn-sm" onclick="setEmailTab('received')">Received</button>
@@ -392,6 +392,27 @@ async function syncMailbox(){
     loadMailbox();
   }catch(e){toast(e.message,true)}
   finally{if(b){b.disabled=false;b.textContent='Sync from Resend'}}
+}
+
+async function retryFailed(){
+  if(!confirm('Resend every failed email?\n\nTransient failures (timeouts, rate limits, temporary rejections) will be retried.\nPermanent failures (nonexistent mailbox, suppressed or blocked address) will NOT be retried - resending to those cannot succeed and repeated attempts damage sender reputation.\n\nPermanently undeliverable addresses must be removed from the Suppressions list in the Resend dashboard.'))return;
+  const b=[...document.querySelectorAll('button')].find(x=>x.textContent==='Resend Failed');
+  if(b){b.disabled=true;b.textContent='Sending...'}
+  try{
+    const d=await api('/admin/emails/retry','POST');
+    let msg=`Resent ${d.attempted} email(s): ${d.delivered} delivered, ${d.stillFailing} still failing.`;
+    if(d.permanent)msg+=` ${d.permanent} permanently undeliverable (skipped).`;
+    if(d.skipped)msg+=` ${d.skipped} skipped - no stored content.`;
+    toast(msg);
+    const bad=(d.details||[]).filter(x=>!x.ok);
+    if(bad.length){
+      const ov=document.createElement('div');ov.className='modal-overlay';ov.id='retryModal';
+      ov.innerHTML=`<div class="modal-box" style="max-width:760px;width:100%"><h3 style="margin-bottom:1rem">Still not delivered</h3><div style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:.5rem">${bad.map(x=>`<div style="border:1px solid var(--border);border-left:3px solid ${x.permanent?'var(--danger)' :'var(--warning,#d97706)'};border-radius:6px;padding:.6rem .8rem;font-size:.8rem"><strong>${esc(x.to)}</strong><div style="color:var(--muted);margin:2px 0">${esc(x.subject||'')}</div><div style="color:#991b1b">${esc(x.error)}</div></div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:1rem"><button class="btn btn-o" onclick="document.getElementById('retryModal').remove()">Close</button></div></div>`;
+      document.body.appendChild(ov);
+    }
+    loadMailbox();
+  }catch(e){toast(e.message,true)}
+  finally{if(b){b.disabled=false;b.textContent='Resend Failed'}}
 }
 
 async function clearMailbox(){

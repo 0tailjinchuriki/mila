@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail, sendEmail, isValidEmail, getEmailLog, logEmail, stripTags, syncSentFromResend } from '../email.js';
+import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail, sendEmail, isValidEmail, getEmailLog, logEmail, stripTags, syncSentFromResend, retryFailedEmails } from '../email.js';
 
 const router = Router();
 
@@ -480,6 +480,15 @@ router.post('/emails/sync', adminMiddleware, async (_req, res) => {
     res.json({ success: true, added });
   } catch (e) {
     res.status(502).json({ error: e.message || 'Sync failed' });
+  }
+});
+
+router.post('/emails/retry', adminMiddleware, async (_req, res) => {
+  try {
+    const results = await retryFailedEmails(50);
+    res.json({ success: true, ...results });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Retry failed' });
   }
 });
 

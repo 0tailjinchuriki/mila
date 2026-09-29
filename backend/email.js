@@ -61,6 +61,43 @@ export const getEmailLog = async () => {
   catch { return []; }
 };
 
+const PERMANENT_RE = /suppress|hard ?bounce|does not exist|not exist|no such user|invalid (address|recipient|email)|mailbox (unavailable|not found)|recipient (rejected|refused)|blocked|unrouteable|permanent/i;
+
+export const isPermanentFailure = (msg) => PERMANENT_RE.test(String(msg || ''));
+
+export const retryFailedEmails = async (limit = 50) => {
+  const list = await getEmailLog();
+  const failed = list.filter(e => e.status === 'failed' && e.dir === 'sent');
+  const targets = failed.slice(0, limit);
+  const permanent = targets.filter(e => isPermanentFailure(e.error));
+  const transient = targets.filter(e => !isPermanentFailure(e.error));
+  const noHtml = transient.filter(e => !e.html);
+  const retryable = transient.filter(e => e.html);
+
+  const results = { attempted: 0, delivered: 0, stillFailing: 0, permanent: permanent.length, skipped: noHtml.length, details: [] };
+
+  for (const e of retryable) {
+    results.attempted++;
+    const r = await sendEmail(e.to, e.subject, e.html, { headers: { 'X-Retry-Of': e.id } });
+    if (r?.error) {
+      results.stillFailing++;
+      results.details.push({ to: e.to, subject: e.subject, ok: false, error: r.error.message, permanent: isPermanentFailure(r.error.message) });
+    } else {
+      results.delivered++;
+      results.details.push({ to: e.to, subject: e.subject, ok: true });
+    }
+  }
+
+  for (const e of noHtml) {
+    results.details.push({ to: e.to, subject: e.subject, ok: false, error: 'No stored content to resend (logged before the mailbox stored bodies)', permanent: false });
+  }
+  for (const e of permanent) {
+    results.details.push({ to: e.to, subject: e.subject, ok: false, error: e.error, permanent: true });
+  }
+
+  return results;
+};
+
 
 const EMAIL_RE = /^[^\s@,;:<>()[\]\\]+@[^\s@,;:<>()[\]\\]+\.[A-Za-z]{2,}$/;
 
