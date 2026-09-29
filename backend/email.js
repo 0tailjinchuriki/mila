@@ -27,15 +27,33 @@ export const stripTags = (html) => String(html || '')
 
 const EMAIL_LOG_KEY = 'admin:emails';
 const EMAIL_LOG_MAX = 200;
+const HTML_MAX = 20000;
 
 export const logEmail = async (entry) => {
   try {
     const list = JSON.parse(await redis.get(EMAIL_LOG_KEY) || '[]');
-    list.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: new Date().toISOString(), ...entry });
+    const row = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: new Date().toISOString(), ...entry };
+    if (typeof row.html === 'string') row.html = row.html.slice(0, HTML_MAX);
+    list.unshift(row);
     await redis.set(EMAIL_LOG_KEY, JSON.stringify(list.slice(0, EMAIL_LOG_MAX)));
   } catch (e) {
     console.error(`[EMAIL] failed to log entry: ${e.message}`);
   }
+};
+
+export const mergeEmailLog = async (entries) => {
+  const list = JSON.parse(await redis.get(EMAIL_LOG_KEY) || '[]');
+  const seen = new Set(list.map(e => e.resendId).filter(Boolean));
+  let added = 0;
+  for (const e of entries) {
+    if (e.resendId && seen.has(e.resendId)) continue;
+    if (e.resendId) seen.add(e.resendId);
+    list.push({ ...e, html: typeof e.html === 'string' ? e.html.slice(0, HTML_MAX) : '' });
+    added++;
+  }
+  list.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  await redis.set(EMAIL_LOG_KEY, JSON.stringify(list.slice(0, EMAIL_LOG_MAX)));
+  return added;
 };
 
 export const getEmailLog = async () => {
@@ -53,18 +71,19 @@ const UNSUBSCRIBE = { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subj
 export const sendEmail = async (to, subject, html, extra = {}) => {
   const recipient = String(to || '').trim();
   const preview = stripTags(html).slice(0, 4000);
+  const logBase = { dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, html: String(html || '') };
 
   if (!isValidEmail(recipient)) {
     const msg = `Invalid recipient address: "${recipient}"`;
     console.error(`[EMAIL] ${msg}`);
-    await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: msg });
+    await logEmail({ ...logBase, status: 'failed', error: msg });
     return { error: { message: msg } };
   }
 
   if (!process.env.RESEND_API_KEY) {
     const msg = 'RESEND_API_KEY is not set on the server';
     console.error(`[EMAIL] ${msg}`);
-    await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: msg });
+    await logEmail({ ...logBase, status: 'failed', error: msg });
     return { error: { message: msg } };
   }
 
@@ -81,17 +100,37 @@ export const sendEmail = async (to, subject, html, extra = {}) => {
 
     if (result?.error) {
       console.error(`[EMAIL] FAILED to=${recipient} subject="${subject}" :: ${result.error.message}`);
-      await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: result.error.message });
+      await logEmail({ ...logBase, status: 'failed', error: result.error.message });
     } else {
       console.log(`[EMAIL] SENT to=${recipient} subject="${subject}" id=${result?.data?.id || 'n/a'}`);
-      await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'sent', resendId: result?.data?.id || null });
+      await logEmail({ ...logBase, status: 'sent', resendId: result?.data?.id || null });
     }
     return result;
   } catch (err) {
     console.error(`[EMAIL] THREW to=${recipient} subject="${subject}" :: ${err.message}`);
-    await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: err.message });
+    await logEmail({ ...logBase, status: 'failed', error: err.message });
     return { error: { message: err.message } };
   }
+};
+
+export const syncSentFromResend = async () => {
+  if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set on the server');
+  const result = await resend.emails.list();
+  if (result?.error) throw new Error(result.error.message || 'Resend list failed');
+  const items = result?.data?.data || [];
+  const entries = items.map(r => ({
+    dir: 'sent',
+    resendId: r.id,
+    from: Array.isArray(r.from) ? r.from.join(', ') : r.from,
+    to: Array.isArray(r.to) ? r.to.join(', ') : r.to,
+    subject: r.subject || '(no subject)',
+    body: '',
+    html: '',
+    status: 'sent',
+    at: r.created_at || new Date().toISOString(),
+    imported: true
+  }));
+  return mergeEmailLog(entries);
 };
 
 

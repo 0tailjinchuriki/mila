@@ -283,7 +283,7 @@ let emailAttachments=[];
 function renderEmails(){
   emailAttachments=[];
   document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Emails</h1><p>Mailbox and outbound email composition</p></div>
-  <div class="card" style="margin-bottom:1.25rem"><div class="card-hdr"><h3>Mailbox</h3><div style="display:flex;gap:.5rem;align-items:center"><button class="btn btn-o btn-sm" onclick="loadMailbox()">Refresh</button><button class="btn btn-d btn-sm" onclick="clearMailbox()">Clear</button></div></div><div class="card-body">
+  <div class="card" style="margin-bottom:1.25rem"><div class="card-hdr"><h3>Mailbox</h3><div style="display:flex;gap:.5rem;align-items:center"><button class="btn btn-o btn-sm" onclick="syncMailbox()">Sync from Resend</button><button class="btn btn-o btn-sm" onclick="loadMailbox()">Refresh</button><button class="btn btn-d btn-sm" onclick="clearMailbox()">Clear</button></div></div><div class="card-body">
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
       <button id="tabSent" class="btn btn-o btn-sm" onclick="setEmailTab('sent')">Sent</button>
       <button id="tabRecv" class="btn btn-o btn-sm" onclick="setEmailTab('received')">Received</button>
@@ -342,23 +342,56 @@ function renderMailbox(){
   if(eb)eb.textContent=emailCache.length;
   const list=emailCache.filter(e=>e.dir===emailTab);
   if(!list.length){
-    el.innerHTML=`<div style="border:1px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;color:var(--muted);font-size:.85rem">${emailTab==='sent'?'No sent emails recorded yet.':'No received emails yet. Point a Resend inbound route to POST /api/admin/inbound-email to capture mail sent to info@usmarinelas.site.'}</div>`;
+    el.innerHTML=`<div style="border:1px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;color:var(--muted);font-size:.85rem">${emailTab==='sent'?'No sent emails recorded yet. Use <strong>Sync from Resend</strong> to import your sent history, or send a test email below.':'No received emails yet. Point a Resend inbound route to POST /api/admin/inbound-email to capture mail sent to info@usmarinelas.site.'}</div>`;
     return;
   }
   el.innerHTML=`<div style="display:flex;flex-direction:column;gap:.5rem;max-height:520px;overflow-y:auto">${list.map(e=>`
-    <details style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
-      <summary style="padding:.75rem 1rem;cursor:pointer;background:#f9fafb;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
-        <span class="badge ${e.status==='failed'?'badge-r':'badge-ok'}">${e.status==='failed'?'Failed':'Sent'}</span>
-        <strong style="font-size:.85rem;flex:1;min-width:150px">${esc(e.subject||'(no subject)')}</strong>
-        <span style="font-size:.75rem;color:var(--muted)">${esc(emailTab==='sent'?'To: '+e.to:'From: '+e.from)}</span>
-        <span style="font-size:.72rem;color:var(--muted)">${new Date(e.at).toLocaleString()}</span>
-      </summary>
-      <div style="padding:1rem;border-top:1px solid var(--border)">
-        ${e.error?`<div style="background:#fee2e2;border-left:3px solid var(--danger);padding:.6rem .8rem;margin-bottom:.75rem;font-size:.8rem;color:#991b1b">${esc(e.error)}</div>`:''}
-        <div style="font-size:.75rem;color:var(--muted);margin-bottom:.6rem">${esc(emailTab==='sent'?'To: '+e.to:'From: '+e.from)}</div>
-        <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:.85rem;color:#333;margin:0">${esc(e.body||'')}</pre>
-      </div>
-    </details>`).join('')}</div>`;
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;background:#f9fafb;flex-wrap:wrap">
+      <span class="badge ${e.status==='failed'?'badge-r':'badge-ok'}">${e.status==='failed'?'Failed':'Sent'}</span>
+      <strong style="font-size:.85rem;flex:1;min-width:150px">${esc(e.subject||'(no subject)')}</strong>
+      <span style="font-size:.75rem;color:var(--muted)">${esc(emailTab==='sent'?'To: '+e.to:'From: '+e.from)}</span>
+      <span style="font-size:.72rem;color:var(--muted)">${new Date(e.at).toLocaleString()}</span>
+      <button class="btn btn-o btn-sm" onclick="viewEmail('${e.id}')">View</button>
+    </div>`).join('')}</div>`;
+}
+
+function viewEmail(id){
+  const e=emailCache.find(x=>x.id===id);if(!e)return;
+  const old=document.getElementById('evModal');if(old)old.remove();
+  const hasHtml=!!e.html;
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='evModal';
+  ov.innerHTML=`<div class="modal-box" style="max-width:860px;width:100%">
+    <h3 style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      ${esc(e.subject||'(no subject)')}
+    </h3>
+    ${e.error?`<div style="background:#fee2e2;border-left:3px solid var(--danger);padding:.6rem .8rem;margin-bottom:1rem;font-size:.8rem;color:#991b1b">${esc(e.error)}</div>`:''}
+    <div class="dg" style="margin-bottom:1rem">
+      <div class="di"><label>From</label><p>${esc(e.from||'-')}</p></div>
+      <div class="di"><label>To</label><p>${esc(e.to||'-')}</p></div>
+      <div class="di"><label>Status</label><p>${e.status==='failed'?'Failed':'Sent'}</p></div>
+      <div class="di"><label>Date</label><p>${new Date(e.at).toLocaleString()}</p></div>
+    </div>
+    ${hasHtml?`<iframe id="evFrame" sandbox style="width:100%;height:440px;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`
+            :`<pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:.85rem;color:#333;background:#f9fafb;border:1px solid var(--border);border-radius:8px;padding:1rem;max-height:440px;overflow:auto">${esc(e.body||(e.imported?'This email was imported from Resend history. Resend does not retain message bodies, so content is only available for mail sent through this panel.':'No content stored.'))}</pre>`}
+    <div style="display:flex;justify-content:flex-end;margin-top:1rem"><button class="btn btn-o" onclick="closeEmailView()">Close</button></div>
+  </div>`;
+  ov.onclick=ev=>{if(ev.target===ov)closeEmailView()};
+  document.body.appendChild(ov);
+  if(hasHtml){const f=document.getElementById('evFrame');if(f)f.srcdoc=e.html}
+}
+
+function closeEmailView(){const m=document.getElementById('evModal');if(m)m.remove()}
+
+async function syncMailbox(){
+  const b=[...document.querySelectorAll('button')].find(x=>x.textContent==='Sync from Resend');
+  if(b){b.disabled=true;b.textContent='Syncing...'}
+  try{
+    const d=await api('/admin/emails/sync','POST');
+    toast(d.added?`Imported ${d.added} email(s) from Resend`:'No new emails to import');
+    loadMailbox();
+  }catch(e){toast(e.message,true)}
+  finally{if(b){b.disabled=false;b.textContent='Sync from Resend'}}
 }
 
 async function clearMailbox(){
