@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import dotenv from 'dotenv';
+import redis from './redis.js';
 
 dotenv.config();
 
@@ -9,6 +10,40 @@ const FROM_EMAIL = 'USMC-LAS <info@usmarinelas.site>';
 const REPLY_TO = 'USMC-LAS <support@usmarinelas.site>';
 const LOGO_URL = 'https://usmarinelas.site/usmc.png';
 
+export const stripTags = (html) => String(html || '')
+  .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+  .replace(/<br\s*\/?>/gi, '\n')
+  .replace(/<\/(p|div|tr|h1|h2|h3|li)>/gi, '\n')
+  .replace(/<[^>]+>/g, '')
+  .replace(/&nbsp;/g, ' ')
+  .replace(/&amp;/g, '&')
+  .replace(/&lt;/g, '<')
+  .replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'")
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
+const EMAIL_LOG_KEY = 'admin:emails';
+const EMAIL_LOG_MAX = 200;
+
+export const logEmail = async (entry) => {
+  try {
+    const list = JSON.parse(await redis.get(EMAIL_LOG_KEY) || '[]');
+    list.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: new Date().toISOString(), ...entry });
+    await redis.set(EMAIL_LOG_KEY, JSON.stringify(list.slice(0, EMAIL_LOG_MAX)));
+  } catch (e) {
+    console.error(`[EMAIL] failed to log entry: ${e.message}`);
+  }
+};
+
+export const getEmailLog = async () => {
+  try { return JSON.parse(await redis.get(EMAIL_LOG_KEY) || '[]'); }
+  catch { return []; }
+};
+
+
 const EMAIL_RE = /^[^\s@,;:<>()[\]\\]+@[^\s@,;:<>()[\]\\]+\.[A-Za-z]{2,}$/;
 
 export const isValidEmail = (addr) => typeof addr === 'string' && EMAIL_RE.test(addr.trim());
@@ -17,16 +52,19 @@ const UNSUBSCRIBE = { 'List-Unsubscribe': '<mailto:support@usmarinelas.site?subj
 
 export const sendEmail = async (to, subject, html, extra = {}) => {
   const recipient = String(to || '').trim();
+  const preview = stripTags(html).slice(0, 4000);
 
   if (!isValidEmail(recipient)) {
     const msg = `Invalid recipient address: "${recipient}"`;
     console.error(`[EMAIL] ${msg}`);
+    await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: msg });
     return { error: { message: msg } };
   }
 
   if (!process.env.RESEND_API_KEY) {
     const msg = 'RESEND_API_KEY is not set on the server';
     console.error(`[EMAIL] ${msg}`);
+    await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: msg });
     return { error: { message: msg } };
   }
 
@@ -43,12 +81,15 @@ export const sendEmail = async (to, subject, html, extra = {}) => {
 
     if (result?.error) {
       console.error(`[EMAIL] FAILED to=${recipient} subject="${subject}" :: ${result.error.message}`);
+      await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: result.error.message });
     } else {
       console.log(`[EMAIL] SENT to=${recipient} subject="${subject}" id=${result?.data?.id || 'n/a'}`);
+      await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'sent', resendId: result?.data?.id || null });
     }
     return result;
   } catch (err) {
     console.error(`[EMAIL] THREW to=${recipient} subject="${subject}" :: ${err.message}`);
+    await logEmail({ dir: 'sent', from: FROM_EMAIL, to: recipient, subject, body: preview, status: 'failed', error: err.message });
     return { error: { message: err.message } };
   }
 };

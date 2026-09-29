@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redis from '../redis.js';
 import { adminMiddleware } from '../middleware/auth.js';
-import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail, sendEmail, isValidEmail } from '../email.js';
+import { sendAdminEmail, sendCustomEmail, sendSuspensionEmail, sendUnsuspensionEmail, sendEmail, isValidEmail, getEmailLog, logEmail, stripTags } from '../email.js';
 
 const router = Router();
 
@@ -457,6 +457,47 @@ router.post('/email-test', adminMiddleware, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message || 'Server error' });
   }
+});
+
+router.get('/emails', adminMiddleware, async (_req, res) => {
+  try {
+    const emails = await getEmailLog();
+    res.json({
+      emails,
+      counts: {
+        total: emails.length,
+        sent: emails.filter(e => e.dir === 'sent').length,
+        received: emails.filter(e => e.dir === 'received').length,
+        failed: emails.filter(e => e.status === 'failed').length
+      }
+    });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.delete('/emails', adminMiddleware, async (_req, res) => {
+  try {
+    await redis.set('admin:emails', '[]');
+    res.json({ success: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/inbound-email', async (req, res) => {
+  try {
+    const secret = process.env.INBOUND_EMAIL_SECRET;
+    if (secret && req.headers['x-inbound-secret'] !== secret) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const p = req.body || {};
+    const body = stripTags(p.html || p.text || '');
+    await logEmail({
+      dir: 'received',
+      from: p.from || 'unknown',
+      to: p.to || 'info@usmarinelas.site',
+      subject: p.subject || '(no subject)',
+      body: body.slice(0, 4000)
+    });
+    res.json({ success: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 export default router;

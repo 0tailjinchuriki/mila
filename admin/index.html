@@ -35,9 +35,10 @@
     .sidebar-nav a{display:flex;align-items:center;gap:.75rem;padding:.75rem 1.5rem;color:rgba(255,255,255,.8);text-decoration:none;font-size:.9rem;transition:all .2s;cursor:pointer}
     .sidebar-nav a:hover,.sidebar-nav a.active{background:rgba(255,255,255,.1);color:#fff}
     .sidebar-nav a .badge{background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.7rem;margin-left:auto}
-    .sidebar-footer{padding:1rem 1.5rem;border-top:1px solid rgba(255,255,255,.15);position:absolute;bottom:0;width:100%}
-    .sidebar-footer a{color:rgba(255,255,255,.7);text-decoration:none;font-size:.85rem;cursor:pointer;display:flex;align-items:center;gap:.5rem}
-    .sidebar-footer a:hover{color:#fff}
+.sidebar-footer{padding:1rem 1.5rem;border-top:1px solid rgba(255,255,255,.15);position:absolute;bottom:0;width:100%;box-sizing:border-box}
+.sidebar-footer a{color:rgba(255,255,255,.7);text-decoration:none;font-size:.85rem;cursor:pointer;display:flex;align-items:center;gap:.5rem;padding:.6rem 0;border-radius:6px}
+.sidebar-footer a:hover{color:#fff;background:rgba(255,255,255,.08);padding-left:.5rem}
+.sidebar-signout{width:100%;justify-content:center;margin-top:.85rem;padding:.6rem 1rem}
     .main{margin-left:260px;flex:1;padding:1.25rem}
     .page-hdr{margin-bottom:1rem}
     .page-hdr h1{font-family:'Oswald',sans-serif;color:var(--primary);text-transform:uppercase;font-size:1.4rem}
@@ -93,6 +94,7 @@ async function api(ep,m='GET',b=null){
   const r=await fetch(`${API}${ep}`,o);
   const txt=await r.text();
   let d;try{d=JSON.parse(txt)}catch(e){d={error:txt||'Request failed'}}
+  if(r.status===401&&ep!=='/admin/login'){tk=null;localStorage.removeItem('adminTk');renderLogin();throw new Error('Session expired, please sign in again')}
   if(!r.ok)throw new Error(d.error||'Failed');return d;
 }
 
@@ -102,7 +104,7 @@ function renderLogin(){
 }
 
 function renderApp(){
-  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails</a><a class="${page==='suspended'?'active':''}" onclick="nav('suspended')">Suspensions <span class="badge" id="susb">0</span></a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="logout()">Sign Out</a></div></nav><main class="main" id="mc"></main></div>`;
+  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails <span class="badge" id="emb">0</span></a><a class="${page==='suspended'?'active':''}" onclick="nav('suspended')">Suspensions <span class="badge" id="susb">0</span></a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="nav('emails')">Email</a><button class="btn btn-d sidebar-signout" onclick="logout()">Sign Out</button></div></nav><main class="main" id="mc"></main></div>`;
   load();
 }
 
@@ -280,7 +282,15 @@ let emailAttachments=[];
 
 function renderEmails(){
   emailAttachments=[];
-  document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Emails</h1><p>Send emails to any address with branded templates and attachments</p></div>
+  document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Emails</h1><p>Mailbox and outbound email composition</p></div>
+  <div class="card" style="margin-bottom:1.25rem"><div class="card-hdr"><h3>Mailbox</h3><div style="display:flex;gap:.5rem;align-items:center"><button class="btn btn-o btn-sm" onclick="loadMailbox()">Refresh</button><button class="btn btn-d btn-sm" onclick="clearMailbox()">Clear</button></div></div><div class="card-body">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+      <button id="tabSent" class="btn btn-o btn-sm" onclick="setEmailTab('sent')">Sent</button>
+      <button id="tabRecv" class="btn btn-o btn-sm" onclick="setEmailTab('received')">Received</button>
+      <span id="mailCount" style="color:var(--muted);font-size:.8rem;margin-left:auto"></span>
+    </div>
+    <div id="mb" style="margin-top:1rem"><p style="color:var(--muted);font-size:.85rem">Loading mailbox...</p></div>
+  </div></div>
   <div class="card" style="max-width:680px"><div class="card-hdr"><h3>Compose Email</h3></div><div class="card-body">
     <div style="background:linear-gradient(135deg,#eff6ff,#f0f7ff);border:1px solid #bfdbfe;border-radius:10px;padding:16px 20px;margin-bottom:1.25rem;display:flex;align-items:center;gap:12px">
       <div style="width:40px;height:40px;background:var(--primary);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -304,6 +314,56 @@ function renderEmails(){
       <button class="btn btn-p" style="width:auto;padding:.6rem 2rem" onclick="sendCustomEmailAdmin()"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg> Send Email</button>
     </div>
   </div></div>`;
+  loadMailbox();
+}
+
+let emailTab='sent',emailCache=[];
+
+function setEmailTab(t){emailTab=t;loadMailbox()}
+
+async function loadMailbox(){
+  const el=document.getElementById('mb');if(!el)return;
+  try{
+    const d=await api('/admin/emails');
+    emailCache=d.emails||[];
+    const c=d.counts||{};
+    const ts=document.getElementById('tabSent'),tr=document.getElementById('tabRecv');
+    if(ts){ts.className='btn btn-sm btn-o';ts.style.cssText=emailTab==='sent'?'background:var(--primary);color:#fff':'';ts.textContent=`Sent (${c.sent||0})`}
+    if(tr){tr.className='btn btn-sm btn-o';tr.style.cssText=emailTab==='received'?'background:var(--primary);color:#fff':'';tr.textContent=`Received (${c.received||0})`}
+    const cc=document.getElementById('mailCount');
+    if(cc)cc.textContent=c.failed?`${c.failed} failed delivery attempt(s)`:'';
+    renderMailbox();
+  }catch(e){el.innerHTML=`<p style="color:var(--danger);font-size:.85rem">${esc(e.message)}</p>`}
+}
+
+function renderMailbox(){
+  const el=document.getElementById('mb');if(!el)return;
+  const eb=document.getElementById('emb');
+  if(eb)eb.textContent=emailCache.length;
+  const list=emailCache.filter(e=>e.dir===emailTab);
+  if(!list.length){
+    el.innerHTML=`<div style="border:1px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;color:var(--muted);font-size:.85rem">${emailTab==='sent'?'No sent emails recorded yet.':'No received emails yet. Point a Resend inbound route to POST /api/admin/inbound-email to capture mail sent to info@usmarinelas.site.'}</div>`;
+    return;
+  }
+  el.innerHTML=`<div style="display:flex;flex-direction:column;gap:.5rem;max-height:520px;overflow-y:auto">${list.map(e=>`
+    <details style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+      <summary style="padding:.75rem 1rem;cursor:pointer;background:#f9fafb;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+        <span class="badge ${e.status==='failed'?'badge-r':'badge-ok'}">${e.status==='failed'?'Failed':'Sent'}</span>
+        <strong style="font-size:.85rem;flex:1;min-width:150px">${esc(e.subject||'(no subject)')}</strong>
+        <span style="font-size:.75rem;color:var(--muted)">${esc(emailTab==='sent'?'To: '+e.to:'From: '+e.from)}</span>
+        <span style="font-size:.72rem;color:var(--muted)">${new Date(e.at).toLocaleString()}</span>
+      </summary>
+      <div style="padding:1rem;border-top:1px solid var(--border)">
+        ${e.error?`<div style="background:#fee2e2;border-left:3px solid var(--danger);padding:.6rem .8rem;margin-bottom:.75rem;font-size:.8rem;color:#991b1b">${esc(e.error)}</div>`:''}
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:.6rem">${esc(emailTab==='sent'?'To: '+e.to:'From: '+e.from)}</div>
+        <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:.85rem;color:#333;margin:0">${esc(e.body||'')}</pre>
+      </div>
+    </details>`).join('')}</div>`;
+}
+
+async function clearMailbox(){
+  if(!confirm('Delete all stored sent and received emails? This cannot be undone.'))return;
+  try{await api('/admin/emails','DELETE');toast('Mailbox cleared');loadMailbox()}catch(e){toast(e.message,true)}
 }
 
 function handleAttSelect(e){
