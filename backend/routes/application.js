@@ -394,4 +394,59 @@ router.post('/dues/:dueId/pay', async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// Pay-total: submit one receipt to cover the entire outstanding balance across all unpaid bills
+router.post('/dues/pay-total', async (req, res) => {
+  try {
+    const { paymentMethod, cryptoNetwork, receiptNumber, receiptImage } = req.body;
+    if (!paymentMethod) return res.status(400).json({ error: 'Select a payment method' });
+    if (!receiptImage || typeof receiptImage !== 'string' || !receiptImage.startsWith('data:')) {
+      return res.status(400).json({ error: 'Upload your payment receipt image' });
+    }
+    if (receiptImage.length > 7000000) return res.status(400).json({ error: 'Receipt image too large (max 5MB)' });
+
+    const dues = JSON.parse(await redis.get(`dues:${req.user.id}`) || '[]');
+    const unpaid = dues.filter(d => d.status !== 'paid' && !d.pendingPaymentId);
+    if (unpaid.length === 0) return res.status(400).json({ error: 'No unpaid bills to pay' });
+
+    const totalBalance = parseFloat(unpaid.reduce((s, d) => s + Math.max(0, (d.amount || 0) - (d.amountPaid || 0)), 0).toFixed(2));
+    const paymentId = `dp-total-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const queue = JSON.parse(await redis.get('admin:duesPayments') || '[]');
+
+    const entry = {
+      id: paymentId,
+      userId: req.user.id,
+      dueId: 'total',
+      dueLabel: `Total Balance (${unpaid.length} bill${unpaid.length > 1 ? 's' : ''})`,
+      dueAmount: totalBalance,
+      amountPaid: 0,
+      balance: totalBalance,
+      payingTotal: true,
+      billIds: unpaid.map(d => d.id),
+      paymentMethod,
+      cryptoNetwork: paymentMethod === 'crypto' ? (cryptoNetwork || '') : '',
+      receiptNumber: String(receiptNumber || '').slice(0, 50),
+      receipts: [{ image: receiptImage, uploadedAt: new Date().toISOString() }],
+      status: 'pending',
+      submittedAt: new Date().toISOString()
+    };
+
+    queue.push(entry);
+    await redis.set('admin:duesPayments', JSON.stringify(queue));
+
+    // Mark all unpaid bills as pending
+    for (const d of unpaid) {
+      const idx = dues.findIndex(x => x.id === d.id);
+      if (idx !== -1) {
+        dues[idx].pendingPaymentId = paymentId;
+        dues[idx].pendingSubmittedAt = entry.submittedAt;
+      }
+    }
+    await redis.set(`dues:${req.user.id}`, JSON.stringify(dues));
+
+    res.json({ success: true, paymentId, totalBalance });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 export default router;
+

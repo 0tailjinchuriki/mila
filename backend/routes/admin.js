@@ -587,6 +587,49 @@ router.post('/dues/:userId/adjust/:dueId', adminMiddleware, async (req, res) => 
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// Deduct a credit from a bill's billed amount (reduces what the user owes)
+router.post('/dues/:userId/deduct/:dueId', adminMiddleware, async (req, res) => {
+  try {
+    const { deductAmount, note } = req.body;
+    const delta = parseFloat(deductAmount);
+    if (isNaN(delta) || delta <= 0) return res.status(400).json({ error: 'Enter a positive amount to deduct' });
+
+    const dues = JSON.parse(await redis.get(`dues:${req.params.userId}`) || '[]');
+    const idx = dues.findIndex(d => d.id === req.params.dueId);
+    if (idx === -1) return res.status(404).json({ error: 'Bill not found' });
+
+    const bill = dues[idx];
+    // New billed amount = current amount minus the deduction, floored at amountPaid (can't bill less than what was already paid)
+    const newAmount = parseFloat(Math.max(bill.amountPaid || 0, bill.amount - delta).toFixed(2));
+    const actualDeducted = parseFloat((bill.amount - newAmount).toFixed(2));
+
+    bill.amount = newAmount;
+    bill.status = bill.amountPaid >= bill.amount ? 'paid' : (bill.amountPaid > 0 ? 'partial' : 'unpaid');
+    bill.updatedAt = new Date().toISOString();
+    // Log deduction history
+    if (!bill.deductions) bill.deductions = [];
+    bill.deductions.push({
+      at: new Date().toISOString(),
+      amount: actualDeducted,
+      note: String(note || '').slice(0, 200)
+    });
+
+    dues[idx] = bill;
+    await redis.set(`dues:${req.params.userId}`, JSON.stringify(dues));
+
+    // Recalculate user-level alert state
+    const user = await getUser(req.params.userId);
+    if (user) {
+      const totalUnpaid = dues.reduce((s, d) => s + Math.max(0, (d.amount || 0) - (d.amountPaid || 0)), 0);
+      user.duesAlertActive = totalUnpaid > 0.001;
+      user.updatedAt = new Date().toISOString();
+      await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+    }
+
+    res.json({ success: true, actualDeducted, bill: dues[idx], dues });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 // Delete a bill
 router.delete('/dues/:userId/:dueId', adminMiddleware, async (req, res) => {
   try {
@@ -639,16 +682,31 @@ router.post('/dues-payments/:paymentId/review', adminMiddleware, async (req, res
       payment.status = 'approved';
       payment.amountReceived = received;
       payment.reviewedAt = new Date().toISOString();
+      const receipt = payment.receipts && payment.receipts[0] ? payment.receipts[0] : null;
 
-      if (dueIdx !== -1) {
+      if (payment.payingTotal && Array.isArray(payment.billIds)) {
+        // Distribute received amount across all billed items proportionally (or waterfall)
+        let remaining = received;
+        for (const billId of payment.billIds) {
+          if (remaining <= 0) break;
+          const idx = dues.findIndex(d => d.id === billId);
+          if (idx === -1) continue;
+          const owed = parseFloat((dues[idx].amount - (dues[idx].amountPaid || 0)).toFixed(2));
+          const applying = parseFloat(Math.min(remaining, owed).toFixed(2));
+          dues[idx].amountPaid = parseFloat(((dues[idx].amountPaid || 0) + applying).toFixed(2));
+          dues[idx].status = dues[idx].amountPaid >= dues[idx].amount ? 'paid' : (dues[idx].amountPaid > 0 ? 'partial' : 'unpaid');
+          dues[idx].pendingPaymentId = null;
+          if (receipt) dues[idx].receipts = [...(dues[idx].receipts || []), { ...receipt, amountReceived: applying, approvedAt: new Date().toISOString() }];
+          remaining = parseFloat((remaining - applying).toFixed(2));
+        }
+      } else if (dueIdx !== -1) {
         dues[dueIdx].amountPaid = parseFloat(((dues[dueIdx].amountPaid || 0) + received).toFixed(2));
         if (dues[dueIdx].amountPaid >= dues[dueIdx].amount) {
           dues[dueIdx].status = 'paid';
         } else if (dues[dueIdx].amountPaid > 0) {
           dues[dueIdx].status = 'partial';
         }
-        // Store receipt on the due
-        const receipt = payment.receipts && payment.receipts[0] ? payment.receipts[0] : null;
+        dues[dueIdx].pendingPaymentId = null;
         if (receipt) dues[dueIdx].receipts = [...(dues[dueIdx].receipts || []), { ...receipt, amountReceived: received, approvedAt: new Date().toISOString() }];
       }
 
@@ -671,8 +729,14 @@ router.post('/dues-payments/:paymentId/review', adminMiddleware, async (req, res
       payment.reviewedAt = new Date().toISOString();
       queue[payIdx] = payment;
 
-      // Mark the due as pending again so user can re-submit
-      if (dueIdx !== -1) {
+      // Mark the due(s) as payable again so user can re-submit
+      if (payment.payingTotal && Array.isArray(payment.billIds)) {
+        for (const billId of payment.billIds) {
+          const idx = dues.findIndex(d => d.id === billId);
+          if (idx !== -1) { dues[idx].pendingPaymentId = null; dues[idx].status = dues[idx].amountPaid > 0 ? 'partial' : 'unpaid'; }
+        }
+        await redis.set(`dues:${payment.userId}`, JSON.stringify(dues));
+      } else if (dueIdx !== -1) {
         dues[dueIdx].pendingPaymentId = null;
         dues[dueIdx].status = dues[dueIdx].amountPaid > 0 ? 'partial' : 'unpaid';
         await redis.set(`dues:${payment.userId}`, JSON.stringify(dues));

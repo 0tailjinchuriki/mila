@@ -793,6 +793,7 @@ async function loadUserDues(uid){
           <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
             <span class="badge ${b.status==='paid'?'badge-ok':b.status==='partial'?'badge-p':'badge-r'}">${b.status==='paid'?'Paid':b.status==='partial'?'Partial':'Unpaid'}</span>
             <button class="btn btn-o btn-sm" onclick="openAdjustBillModal('${b.id}','${esc(b.label)}',${b.amount})">Adjust</button>
+            <button class="btn btn-sm" style="background:#d97706;color:#fff" onclick="openDeductBillModal('${b.id}','${esc(b.label)}',${b.amount},${b.amountPaid||0})">Deduct</button>
             <button class="btn btn-d btn-sm" onclick="deleteBill('${uid}','${b.id}')">Delete</button>
           </div>
         </div>`).join('')}
@@ -869,6 +870,47 @@ async function submitAdjustBill(id){
     document.getElementById('adjModal').remove();
     loadUserDues(duesSelectedUser);
   }catch(e){err.textContent=e.message}
+}
+
+function openDeductBillModal(id, label, currentAmount, amountPaid) {
+  const maxDeduct = parseFloat((currentAmount - amountPaid).toFixed(2));
+  const ov = document.createElement('div'); ov.className = 'modal-overlay'; ov.id = 'deductModal';
+  ov.innerHTML = `<div class="modal-box" style="max-width:460px">
+    <h3>Deduct from Bill</h3>
+    <p style="margin-bottom:.5rem;color:var(--muted)">${esc(label)}</p>
+    <div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.85rem">
+      <span>Current billed: <strong>$${currentAmount.toFixed(2)}</strong></span>
+      <span style="color:#16a34a">Already paid: <strong>$${amountPaid.toFixed(2)}</strong></span>
+      <span style="color:#d97706">Max deductible: <strong>$${maxDeduct.toFixed(2)}</strong></span>
+    </div>
+    <div class="fg"><label>Amount to Deduct ($)</label>
+      <input type="number" class="fi" id="deductAmt" placeholder="e.g. 100.00" min="0.01" max="${maxDeduct}" step="0.01"/>
+      <p style="font-size:.78rem;color:var(--muted);margin-top:.25rem">The billed amount will be reduced by this value. The user will owe less.</p>
+    </div>
+    <div class="fg"><label>Reason / Note <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+      <input type="text" class="fi" id="deductNote" placeholder="e.g. Partial payment received on previous receipt"/>
+    </div>
+    <div id="deductErr" class="err"></div>
+    <div style="display:flex;gap:1rem;justify-content:flex-end;margin-top:1.5rem">
+      <button class="btn btn-o" onclick="document.getElementById('deductModal').remove()">Cancel</button>
+      <button class="btn btn-sm" style="background:#d97706;color:#fff;width:auto;padding:.55rem 1.5rem" onclick="submitDeductBill('${id}')">Apply Deduction</button>
+    </div>
+  </div>`;
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
+async function submitDeductBill(id) {
+  const amt = parseFloat(document.getElementById('deductAmt')?.value);
+  const note = document.getElementById('deductNote')?.value || '';
+  const err = document.getElementById('deductErr');
+  if (isNaN(amt) || amt <= 0) { err.textContent = 'Enter a positive amount'; return; }
+  try {
+    const r = await api(`/admin/dues/${duesSelectedUser}/deduct/${id}`, 'POST', { deductAmount: amt, note });
+    toast(`Deducted $${r.actualDeducted.toFixed(2)} from bill`);
+    document.getElementById('deductModal').remove();
+    loadUserDues(duesSelectedUser);
+  } catch(e) { err.textContent = e.message; }
 }
 
 async function deleteBill(uid,id){
