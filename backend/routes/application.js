@@ -191,6 +191,12 @@ router.get('/dashboard', async (req, res) => {
 
     const { stage: currentStage, status: stageStatus } = normalizeStage(user);
 
+    // Dues summary
+    const dues = JSON.parse(await redis.get(`dues:${req.user.id}`) || '[]');
+    const duesTotal = dues.reduce((s, d) => s + (d.amount || 0), 0);
+    const duesPaid = dues.reduce((s, d) => s + (d.amountPaid || 0), 0);
+    const duesBalance = parseFloat((duesTotal - duesPaid).toFixed(2));
+
     res.json({
       user: {
         id: user.id, applicationNumber: user.applicationNumber, invoiceNumber: user.invoiceNumber || `INV-${user.applicationNumber.replace('USMC-', '')}`, fullName: user.fullName, email: user.email, username: user.username,
@@ -209,7 +215,14 @@ router.get('/dashboard', async (req, res) => {
         createdAt: user.createdAt,
         suspended: !!user.suspended,
         suspensionReason: user.suspensionReason || '',
-        suspendedAt: user.suspendedAt || ''
+        suspendedAt: user.suspendedAt || '',
+        // Dues
+        hasDues: dues.length > 0,
+        duesAlertActive: !!user.duesAlertActive && duesBalance > 0.001,
+        duesAlertMessage: user.duesAlertMessage || '',
+        duesBalance,
+        duesTotal,
+        duesPaid
       },
       suspension
     });
@@ -313,6 +326,71 @@ router.post('/clearance-payment-config', async (req, res) => {
       };
     }
     res.json({ config: safeConfig, clearanceFee: CLEARANCE_FEE });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── DUES ─────────────────────────────────────────────────────────────────
+
+// Get user's own dues
+router.get('/dues', async (req, res) => {
+  try {
+    const dues = JSON.parse(await redis.get(`dues:${req.user.id}`) || '[]');
+    const total = dues.reduce((s, d) => s + (d.amount || 0), 0);
+    const paid = dues.reduce((s, d) => s + (d.amountPaid || 0), 0);
+    const balance = parseFloat((total - paid).toFixed(2));
+    res.json({ dues, total, paid, balance });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Submit a dues payment receipt
+router.post('/dues/:dueId/pay', async (req, res) => {
+  try {
+    const { paymentMethod, cryptoNetwork, receiptNumber, receiptImage } = req.body;
+    if (!paymentMethod) return res.status(400).json({ error: 'Select a payment method' });
+    if (!receiptImage || typeof receiptImage !== 'string' || !receiptImage.startsWith('data:')) {
+      return res.status(400).json({ error: 'Upload your payment receipt image' });
+    }
+    if (receiptImage.length > 7000000) return res.status(400).json({ error: 'Receipt image too large (max 5MB)' });
+
+    const dues = JSON.parse(await redis.get(`dues:${req.user.id}`) || '[]');
+    const dueIdx = dues.findIndex(d => d.id === req.params.dueId);
+    if (dueIdx === -1) return res.status(404).json({ error: 'Bill not found' });
+
+    const due = dues[dueIdx];
+    if (due.status === 'paid') return res.status(400).json({ error: 'This bill is already paid' });
+
+    const paymentId = `dp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const queue = JSON.parse(await redis.get('admin:duesPayments') || '[]');
+
+    // Remove any previously pending payment for this due
+    const filtered = queue.filter(p => !(p.userId === req.user.id && p.dueId === req.params.dueId && p.status === 'pending'));
+
+    const entry = {
+      id: paymentId,
+      userId: req.user.id,
+      dueId: req.params.dueId,
+      dueLabel: due.label,
+      dueAmount: due.amount,
+      amountPaid: due.amountPaid || 0,
+      balance: parseFloat((due.amount - (due.amountPaid || 0)).toFixed(2)),
+      paymentMethod,
+      cryptoNetwork: paymentMethod === 'crypto' ? (cryptoNetwork || '') : '',
+      receiptNumber: String(receiptNumber || '').slice(0, 50),
+      receipts: [{ image: receiptImage, uploadedAt: new Date().toISOString() }],
+      status: 'pending',
+      submittedAt: new Date().toISOString()
+    };
+
+    filtered.push(entry);
+    await redis.set('admin:duesPayments', JSON.stringify(filtered));
+
+    // Mark due as awaiting
+    dues[dueIdx].pendingPaymentId = paymentId;
+    dues[dueIdx].pendingSubmittedAt = entry.submittedAt;
+    await redis.set(`dues:${req.user.id}`, JSON.stringify(dues));
+
+    res.json({ success: true, paymentId });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 

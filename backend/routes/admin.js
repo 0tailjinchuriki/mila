@@ -189,6 +189,8 @@ router.post('/approve-application-fee/:userId', adminMiddleware, async (req, res
 
     if (approved) {
       user.applicationFeeVerified = true;
+      // Stamp the exact moment of approval — maintenance clock starts here
+      if (!user.applicationFeeVerifiedAt) user.applicationFeeVerifiedAt = new Date().toISOString();
       user.stageStatus = 'clearance_pending';
       user.currentStage = 2;
       user.applicationFeeRejectMessage = '';
@@ -515,6 +517,353 @@ router.delete('/emails', adminMiddleware, async (_req, res) => {
     res.json({ success: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
+
+// ─── TOTAL DUES ────────────────────────────────────────────────────────────
+
+const BILL_TYPES = ['application_fee_balance', 'account_maintenance', 'substitute_clearance', 'processing_fee', 'documentation_fee', 'custom'];
+
+// Get all dues for a user
+router.get('/dues/:userId', adminMiddleware, async (req, res) => {
+  try {
+    const user = await getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const dues = JSON.parse(await redis.get(`dues:${req.params.userId}`) || '[]');
+    const total = dues.reduce((s, d) => s + (d.amount || 0), 0);
+    const paid = dues.reduce((s, d) => s + (d.amountPaid || 0), 0);
+    res.json({ dues, total, paid, balance: total - paid });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Add a bill to a user
+router.post('/dues/:userId/add', adminMiddleware, async (req, res) => {
+  try {
+    const { type, label, amount } = req.body;
+    if (!type || !amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ error: 'Type and a positive amount are required' });
+    }
+    const user = await getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const dues = JSON.parse(await redis.get(`dues:${req.params.userId}`) || '[]');
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      type,
+      label: String(label || type).slice(0, 120),
+      amount: parseFloat(parseFloat(amount).toFixed(2)),
+      amountPaid: 0,
+      status: 'unpaid',
+      createdAt: new Date().toISOString(),
+      receipts: []
+    };
+    dues.push(entry);
+    await redis.set(`dues:${req.params.userId}`, JSON.stringify(dues));
+
+    // Mark user as having active dues
+    user.hasDues = true;
+    user.duesAlertActive = true;
+    user.updatedAt = new Date().toISOString();
+    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+
+    res.json({ success: true, entry, dues });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Adjust a bill amount (admin can increase/reduce)
+router.post('/dues/:userId/adjust/:dueId', adminMiddleware, async (req, res) => {
+  try {
+    const { amount } = req.body;
+    if (isNaN(parseFloat(amount))) return res.status(400).json({ error: 'Valid amount required' });
+
+    const dues = JSON.parse(await redis.get(`dues:${req.params.userId}`) || '[]');
+    const idx = dues.findIndex(d => d.id === req.params.dueId);
+    if (idx === -1) return res.status(404).json({ error: 'Bill not found' });
+
+    dues[idx].amount = parseFloat(parseFloat(amount).toFixed(2));
+    if (dues[idx].amount < dues[idx].amountPaid) dues[idx].amountPaid = dues[idx].amount;
+    dues[idx].status = dues[idx].amountPaid >= dues[idx].amount ? 'paid' : (dues[idx].amountPaid > 0 ? 'partial' : 'unpaid');
+    dues[idx].updatedAt = new Date().toISOString();
+    await redis.set(`dues:${req.params.userId}`, JSON.stringify(dues));
+    res.json({ success: true, dues });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Delete a bill
+router.delete('/dues/:userId/:dueId', adminMiddleware, async (req, res) => {
+  try {
+    let dues = JSON.parse(await redis.get(`dues:${req.params.userId}`) || '[]');
+    dues = dues.filter(d => d.id !== req.params.dueId);
+    await redis.set(`dues:${req.params.userId}`, JSON.stringify(dues));
+    const user = await getUser(req.params.userId);
+    if (user) {
+      const totalUnpaid = dues.reduce((s, d) => s + Math.max(0, (d.amount||0) - (d.amountPaid||0)), 0);
+      user.hasDues = dues.length > 0;
+      user.duesAlertActive = totalUnpaid > 0;
+      user.updatedAt = new Date().toISOString();
+      await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+    }
+    res.json({ success: true, dues });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Get all users with pending dues payments
+router.get('/dues-payments', adminMiddleware, async (req, res) => {
+  try {
+    const queue = JSON.parse(await redis.get('admin:duesPayments') || '[]');
+    const enriched = [];
+    for (const item of queue) {
+      const user = await getUser(item.userId);
+      if (user) enriched.push({ ...item, fullName: user.fullName, email: user.email, applicationNumber: user.applicationNumber });
+    }
+    res.json({ payments: enriched });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Approve or reject a dues payment receipt (with amount received)
+router.post('/dues-payments/:paymentId/review', adminMiddleware, async (req, res) => {
+  try {
+    const { approved, amountReceived, rejectMessage } = req.body;
+    if (approved && (isNaN(parseFloat(amountReceived)) || parseFloat(amountReceived) < 0)) {
+      return res.status(400).json({ error: 'Enter the amount received' });
+    }
+
+    let queue = JSON.parse(await redis.get('admin:duesPayments') || '[]');
+    const payIdx = queue.findIndex(p => p.id === req.params.paymentId);
+    if (payIdx === -1) return res.status(404).json({ error: 'Payment not found' });
+
+    const payment = queue[payIdx];
+    const dues = JSON.parse(await redis.get(`dues:${payment.userId}`) || '[]');
+    const dueIdx = dues.findIndex(d => d.id === payment.dueId);
+
+    if (approved) {
+      const received = parseFloat(parseFloat(amountReceived).toFixed(2));
+      payment.status = 'approved';
+      payment.amountReceived = received;
+      payment.reviewedAt = new Date().toISOString();
+
+      if (dueIdx !== -1) {
+        dues[dueIdx].amountPaid = parseFloat(((dues[dueIdx].amountPaid || 0) + received).toFixed(2));
+        if (dues[dueIdx].amountPaid >= dues[dueIdx].amount) {
+          dues[dueIdx].status = 'paid';
+        } else if (dues[dueIdx].amountPaid > 0) {
+          dues[dueIdx].status = 'partial';
+        }
+        // Store receipt on the due
+        const receipt = payment.receipts && payment.receipts[0] ? payment.receipts[0] : null;
+        if (receipt) dues[dueIdx].receipts = [...(dues[dueIdx].receipts || []), { ...receipt, amountReceived: received, approvedAt: new Date().toISOString() }];
+      }
+
+      await redis.set(`dues:${payment.userId}`, JSON.stringify(dues));
+
+      // Recalculate user duesAlertActive
+      const user = await getUser(payment.userId);
+      if (user) {
+        const totalUnpaid = dues.reduce((s, d) => s + Math.max(0, (d.amount||0) - (d.amountPaid||0)), 0);
+        user.duesAlertActive = totalUnpaid > 0.001;
+        user.updatedAt = new Date().toISOString();
+        await redis.set(`user:${payment.userId}`, JSON.stringify(user));
+      }
+
+      // Remove from queue
+      queue = queue.filter(p => p.id !== req.params.paymentId);
+    } else {
+      payment.status = 'rejected';
+      payment.rejectMessage = String(rejectMessage || 'Receipt not accepted').slice(0, 500);
+      payment.reviewedAt = new Date().toISOString();
+      queue[payIdx] = payment;
+
+      // Mark the due as pending again so user can re-submit
+      if (dueIdx !== -1) {
+        dues[dueIdx].pendingPaymentId = null;
+        dues[dueIdx].status = dues[dueIdx].amountPaid > 0 ? 'partial' : 'unpaid';
+        await redis.set(`dues:${payment.userId}`, JSON.stringify(dues));
+      }
+    }
+
+    await redis.set('admin:duesPayments', JSON.stringify(queue));
+    res.json({ success: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Push dues alert to user
+router.post('/dues/:userId/push-alert', adminMiddleware, async (req, res) => {
+  try {
+    const { alertMessage } = req.body;
+    const user = await getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.duesAlertMessage = String(alertMessage || '').slice(0, 500);
+    user.duesAlertActive = true;
+    user.duesAlertPushedAt = new Date().toISOString();
+    user.updatedAt = new Date().toISOString();
+    await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+
+    res.json({ success: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ─── ACCOUNT MAINTENANCE FEE ─────────────────────────────────────────────────
+// $100 per week after the first free week from fee-approval date.
+// A user is eligible if:
+//   - applicationFeeVerified = true  (admin approved their receipt)
+//   - finalApproved = false AND stageStatus !== 'approved' AND stageStatus !== 'rejected'
+//   - Not suspended
+// Clock starts at the timestamp admin set applicationFeeVerified = true
+// (stored as user.applicationFeeVerifiedAt; fall back to applicationFeeSubmittedAt if missing).
+
+const MAINTENANCE_FEE_PER_WEEK = 100;
+const FREE_WEEKS = 1; // first week is free
+
+function calcMaintenanceWeeks(user, now = new Date()) {
+  if (!user.applicationFeeVerified) return { eligible: false };
+  if (user.finalApproved || user.stageStatus === 'approved' || user.stageStatus === 'rejected') {
+    return { eligible: false, reason: 'process_complete' };
+  }
+  if (user.suspended) return { eligible: false, reason: 'suspended' };
+
+  const startIso = user.applicationFeeVerifiedAt || user.applicationFeeSubmittedAt;
+  if (!startIso) return { eligible: false, reason: 'no_start_date' };
+
+  const start = new Date(startIso);
+  if (isNaN(start.getTime())) return { eligible: false, reason: 'invalid_date' };
+
+  const msElapsed = now - start;
+  const weeksElapsed = Math.floor(msElapsed / (7 * 24 * 60 * 60 * 1000));
+  const chargeableWeeks = Math.max(0, weeksElapsed - FREE_WEEKS);
+
+  // How many weeks have already been charged (to avoid double-billing)
+  const alreadyCharged = user.maintenanceFeeChargedWeeks || 0;
+  const newWeeks = Math.max(0, chargeableWeeks - alreadyCharged);
+
+  return {
+    eligible: chargeableWeeks > 0,
+    startDate: start.toISOString(),
+    weeksElapsed,
+    chargeableWeeks,
+    alreadyCharged,
+    newWeeks,
+    newAmount: parseFloat((newWeeks * MAINTENANCE_FEE_PER_WEEK).toFixed(2)),
+    totalChargeableAmount: parseFloat((chargeableWeeks * MAINTENANCE_FEE_PER_WEEK).toFixed(2))
+  };
+}
+
+// DRY RUN — scan all users and return who would be charged and how much
+router.get('/maintenance-scan', adminMiddleware, async (req, res) => {
+  try {
+    const allUserIds = JSON.parse(await redis.get('all:userIds') || '[]');
+    const now = new Date();
+    const results = [];
+
+    for (const uid of allUserIds) {
+      const user = await getUser(uid);
+      if (!user) continue;
+      const calc = calcMaintenanceWeeks(user, now);
+      results.push({
+        userId: uid,
+        fullName: user.fullName,
+        email: user.email,
+        applicationNumber: user.applicationNumber,
+        stageStatus: user.stageStatus,
+        applicationFeeVerifiedAt: user.applicationFeeVerifiedAt || user.applicationFeeSubmittedAt || null,
+        ...calc
+      });
+    }
+
+    const chargeable = results.filter(r => r.eligible && r.newWeeks > 0);
+    const alreadyMaxed = results.filter(r => r.eligible && r.newWeeks === 0 && r.chargeableWeeks > 0);
+    const notEligible = results.filter(r => !r.eligible);
+
+    res.json({
+      summary: {
+        totalScanned: results.length,
+        chargeable: chargeable.length,
+        totalNewAmount: parseFloat(chargeable.reduce((s, r) => s + r.newAmount, 0).toFixed(2)),
+        alreadyMaxed: alreadyMaxed.length,
+        notEligible: notEligible.length,
+        feePerWeek: MAINTENANCE_FEE_PER_WEEK,
+        freeWeeks: FREE_WEEKS
+      },
+      chargeable,
+      alreadyMaxed
+    });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// COMMIT — actually add the maintenance bills
+router.post('/maintenance-charge', adminMiddleware, async (req, res) => {
+  try {
+    // Optional: charge only specific userIds; omit to charge all eligible
+    const { userIds } = req.body; // array or null/undefined
+    const allUserIds = JSON.parse(await redis.get('all:userIds') || '[]');
+    const now = new Date();
+    const charged = [];
+    const skipped = [];
+
+    const targets = userIds && Array.isArray(userIds) && userIds.length
+      ? allUserIds.filter(id => userIds.includes(id))
+      : allUserIds;
+
+    for (const uid of targets) {
+      const user = await getUser(uid);
+      if (!user) continue;
+
+      const calc = calcMaintenanceWeeks(user, now);
+      if (!calc.eligible || calc.newWeeks <= 0) {
+        skipped.push({ userId: uid, fullName: user.fullName, reason: !calc.eligible ? (calc.reason || 'not_eligible') : 'already_charged' });
+        continue;
+      }
+
+      // Add a maintenance bill to the dues ledger
+      const dues = JSON.parse(await redis.get(`dues:${uid}`) || '[]');
+      const entry = {
+        id: `maint-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type: 'account_maintenance',
+        label: `Account Maintenance — ${calc.newWeeks} week${calc.newWeeks > 1 ? 's' : ''} (${new Date(calc.startDate).toLocaleDateString()} onward)`,
+        amount: calc.newAmount,
+        amountPaid: 0,
+        status: 'unpaid',
+        maintenanceWeeks: calc.newWeeks,
+        maintenanceStartDate: calc.startDate,
+        chargedAt: now.toISOString(),
+        createdAt: now.toISOString(),
+        receipts: [],
+        autoCharged: true
+      };
+      dues.push(entry);
+      await redis.set(`dues:${uid}`, JSON.stringify(dues));
+
+      // Update user: bump chargedWeeks counter, activate dues alert
+      user.maintenanceFeeChargedWeeks = calc.chargeableWeeks; // mark up to current chargeable weeks
+      user.hasDues = true;
+      user.duesAlertActive = true;
+      user.duesAlertMessage = user.duesAlertMessage || `You have an outstanding account maintenance balance of $${calc.newAmount.toFixed(2)}. Please settle your dues to continue your application.`;
+      user.updatedAt = now.toISOString();
+      await redis.set(`user:${uid}`, JSON.stringify(user));
+
+      charged.push({
+        userId: uid,
+        fullName: user.fullName,
+        email: user.email,
+        applicationNumber: user.applicationNumber,
+        newWeeks: calc.newWeeks,
+        newAmount: calc.newAmount,
+        totalChargeableWeeks: calc.chargeableWeeks,
+        startDate: calc.startDate
+      });
+    }
+
+    res.json({
+      success: true,
+      charged: charged.length,
+      skipped: skipped.length,
+      totalAmount: parseFloat(charged.reduce((s, r) => s + r.newAmount, 0).toFixed(2)),
+      details: charged,
+      skippedDetails: skipped
+    });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Also record applicationFeeVerifiedAt when approving the fee, so the clock starts precisely.
+// Patch approve-application-fee to stamp this (done inline below via a helper call on approval).
 
 router.post('/inbound-email', async (req, res) => {
   try {

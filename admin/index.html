@@ -107,7 +107,7 @@
 <div id="app"></div>
 <script>
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:3001/api':'https://api.usmarinelas.site/api';
-let tk=localStorage.getItem('adminTk'),page='dash',allUsers=[],dd=null;
+let tk=localStorage.getItem('adminTk'),page='dash',allUsers=[],dd=null,duesPendingCount=0;
 
 function toast(m,e=false){const t=document.createElement('div');t.className='toast'+(e?' err':'');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
 
@@ -127,7 +127,7 @@ function renderLogin(){
 }
 
 function renderApp(){
-  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails <span class="badge" id="emb">0</span></a><a class="${page==='suspended'?'active':''}" onclick="nav('suspended')">Suspensions <span class="badge" id="susb">0</span></a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="nav('emails')">Email</a><button class="btn btn-d sidebar-signout" onclick="logout()">Sign Out</button></div></nav><main class="main" id="mc"></main></div>`;
+  document.getElementById('app').innerHTML=`<div class="admin-layout"><nav class="sidebar"><div class="sidebar-hdr"><h2>USMC-LAS Admin</h2><p>Administration Panel</p></div><div class="sidebar-nav"><a class="${page==='dash'?'active':''}" onclick="nav('dash')">Dashboard</a><a class="${page==='users'?'active':''}" onclick="nav('users')">All Applicants</a><a class="${page==='payments'?'active':''}" onclick="nav('payments')">Payment Approvals <span class="badge" id="pb">0</span></a><a class="${page==='dues'?'active':''}" onclick="nav('dues')">Total Dues <span class="badge" id="duesb" style="background:#7c3aed">0</span></a><a class="${page==='support'?'active':''}" onclick="nav('support')">Support <span class="badge" id="sb">0</span></a><a class="${page==='final'?'active':''}" onclick="nav('final')">Final Approvals</a><a class="${page==='payconfig'?'active':''}" onclick="nav('payconfig')">Payment Config</a><a class="${page==='emails'?'active':''}" onclick="nav('emails')">Emails <span class="badge" id="emb">0</span></a><a class="${page==='suspended'?'active':''}" onclick="nav('suspended')">Suspensions <span class="badge" id="susb">0</span></a></div><div class="sidebar-footer"><a onclick="openChangePassword()">Change Password</a><a onclick="nav('emails')">Email</a><button class="btn btn-d sidebar-signout" onclick="logout()">Sign Out</button></div></nav><main class="main" id="mc"></main></div>`;
   load();
 }
 
@@ -158,7 +158,8 @@ async function load(){
     document.getElementById('sb').textContent=(dd.support||[]).length;
     await loadSuspended();
     const susEl=document.getElementById('susb');if(susEl)susEl.textContent=suspendedUsers.length;
-    ({dash:renderDash,users:renderUsers,payments:renderPayments,support:renderSupport,final:renderFinal,payconfig:renderPayConfig,emails:renderEmails,suspended:renderSuspended}[page]||renderDash)();
+    try{const dp=await api('/admin/dues-payments');duesPendingCount=(dp.payments||[]).filter(p=>p.status==='pending').length;const db=document.getElementById('duesb');if(db)db.textContent=duesPendingCount}catch{}
+    ({dash:renderDash,users:renderUsers,payments:renderPayments,dues:renderDues,support:renderSupport,final:renderFinal,payconfig:renderPayConfig,emails:renderEmails,suspended:renderSuspended}[page]||renderDash)();
   }catch(err){if(err.message.includes('Invalid')||err.message.includes('token'))logout();else document.getElementById('mc').innerHTML=`<p style="color:red">${err.message}</p>`}
 }
 
@@ -243,7 +244,16 @@ async function sendEmail(uid){
 }
 
 async function ap(uid,ok){
-  try{await api(`/admin/approve-application-fee/${uid}`,'POST',{approved:ok});toast(ok?'Payment approved':'Payment rejected');dd=await api('/admin/dashboard');allUsers=dd.users;ok?vu(uid):load()}catch(e){toast(e.message,true)}
+  if(ok){
+    const amt=prompt('Enter the exact amount received from this payment (e.g. 239.00):','');
+    if(amt===null)return;
+    if(isNaN(parseFloat(amt))||parseFloat(amt)<0){toast('Enter a valid amount',true);return}
+    try{await api(`/admin/approve-application-fee/${uid}`,'POST',{approved:true,amountReceived:parseFloat(amt)});toast('Payment approved');dd=await api('/admin/dashboard');allUsers=dd.users;vu(uid)}catch(e){toast(e.message,true)}
+  }else{
+    const msg=prompt('Rejection reason (shown to applicant):','');
+    if(msg===null)return;
+    try{await api(`/admin/approve-application-fee/${uid}`,'POST',{approved:false,message:msg||'Receipt not accepted'});toast('Payment rejected');dd=await api('/admin/dashboard');allUsers=dd.users;load()}catch(e){toast(e.message,true)}
+  }
 }
 async function af(uid,ok){
   let reason='';
@@ -638,6 +648,357 @@ function openSuspensionEmail(uid,email,name){
     <button class="btn btn-e" onclick="sendEmail('${uid}')">Send Email</button>
   </div></div>`;
   document.body.appendChild(overlay);
+}
+
+// ─── TOTAL DUES ─────────────────────────────────────────────────────────────
+const BILL_TYPE_LABELS={'application_fee_balance':'Application Fee Balance','account_maintenance':'Account Maintenance','substitute_clearance':'Substitute Clearance','processing_fee':'Processing Fee','documentation_fee':'Documentation Fee','custom':'Custom Bill'};
+
+let duesView='payments'; // 'payments' | 'manage' | 'maintenance'
+let duesSelectedUser=null;
+let duesData=[];
+let duesPayments=[];
+
+async function renderDues(){
+  document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Total Dues</h1><p>Manage applicant bills, approve payments, and push alerts</p></div>
+  <div style="display:flex;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap">
+    <button class="btn ${duesView==='payments'?'btn-p':'btn-o'}" onclick="setDuesView('payments')">Payment Approvals <span id="dpCnt" style="background:rgba(255,255,255,.3);border-radius:10px;padding:1px 7px;font-size:.78rem;margin-left:4px">0</span></button>
+    <button class="btn ${duesView==='manage'?'btn-p':'btn-o'}" onclick="setDuesView('manage')">Manage User Bills</button>
+    <button class="btn ${duesView==='maintenance'?'btn-p':'btn-o'}" style="${duesView!=='maintenance'?'background:#7c3aed;color:#fff;border-color:#7c3aed':''}" onclick="setDuesView('maintenance')">Account Maintenance Charges</button>
+  </div>
+  <div id="duesContent"></div>`;
+  if(duesView==='payments') await loadDuesPayments();
+  else if(duesView==='maintenance') await renderMaintenanceScan();
+  else renderManageDues();
+}
+
+function setDuesView(v){duesView=v;renderDues()}
+
+async function loadDuesPayments(){
+  const el=document.getElementById('duesContent');
+  try{
+    const d=await api('/admin/dues-payments');
+    duesPayments=d.payments||[];
+    const pending=duesPayments.filter(p=>p.status==='pending');
+    const dpCnt=document.getElementById('dpCnt');if(dpCnt)dpCnt.textContent=pending.length;
+    const db=document.getElementById('duesb');if(db)db.textContent=pending.length;
+    el.innerHTML=`<div class="card"><div class="card-hdr"><h3>Pending Dues Payments</h3></div><div class="card-body"><div class="tw"><table><thead><tr><th>Applicant</th><th>Bill</th><th>Bill Amount</th><th>Already Paid</th><th>Balance</th><th>Method</th><th>Receipt</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>
+    ${pending.length===0?'<tr><td colspan="9" style="text-align:center;color:var(--muted)">No pending dues payments</td></tr>':
+    pending.map(p=>`<tr>
+      <td><strong>${esc(p.fullName||'Unknown')}</strong><br/><span style="font-size:.75rem;color:var(--muted)">${esc(p.applicationNumber||'')}</span></td>
+      <td>${esc(p.dueLabel||'Bill')}</td>
+      <td>$${(p.dueAmount||0).toFixed(2)}</td>
+      <td>$${(p.amountPaid||0).toFixed(2)}</td>
+      <td><strong>$${(p.balance||0).toFixed(2)}</strong></td>
+      <td>${p.paymentMethod==='crypto'?`Crypto (${esc(p.cryptoNetwork||'')})`:'Bank Transfer'}</td>
+      <td>${(p.receipts&&p.receipts[0])?`<img src="${p.receipts[0].image}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="viewDuesReceipt('${p.id}')"/>`:'No receipt'}</td>
+      <td>${new Date(p.submittedAt).toLocaleDateString()}</td>
+      <td><button class="btn btn-s btn-sm" onclick="reviewDuesPayment('${p.id}',true)">Approve</button> <button class="btn btn-d btn-sm" onclick="reviewDuesPayment('${p.id}',false)">Reject</button></td>
+    </tr>`).join('')}
+    </tbody></table></div></div></div>
+    ${duesPayments.filter(p=>p.status!=='pending').length?`
+    <div class="card" style="margin-top:1rem"><div class="card-hdr"><h3>Reviewed Payments</h3></div><div class="card-body"><div class="tw"><table><thead><tr><th>Applicant</th><th>Bill</th><th>Method</th><th>Status</th><th>Amt Received</th><th>Reviewed</th></tr></thead><tbody>
+    ${duesPayments.filter(p=>p.status!=='pending').map(p=>`<tr>
+      <td>${esc(p.fullName||'')} <span style="font-size:.75rem;color:var(--muted)">${esc(p.applicationNumber||'')}</span></td>
+      <td>${esc(p.dueLabel||'')}</td>
+      <td>${p.paymentMethod==='crypto'?`Crypto (${esc(p.cryptoNetwork||'')})`:'Bank Transfer'}</td>
+      <td><span class="badge ${p.status==='approved'?'badge-ok':'badge-r'}">${p.status}</span></td>
+      <td>${p.amountReceived!=null?`$${p.amountReceived.toFixed(2)}`:'-'}</td>
+      <td>${p.reviewedAt?new Date(p.reviewedAt).toLocaleDateString():'-'}</td>
+    </tr>`).join('')}
+    </tbody></table></div></div></div>`:''}`;
+  }catch(e){el.innerHTML=`<p style="color:red">${esc(e.message)}</p>`}
+}
+
+async function reviewDuesPayment(pid,approve){
+  const payment=duesPayments.find(p=>p.id===pid);
+  if(!payment)return;
+  if(approve){
+    const bal=(payment.balance||payment.dueAmount||0);
+    const amt=prompt(`Amount received for "${payment.dueLabel||'bill'}" (balance is $${bal.toFixed(2)}):`,bal.toFixed(2));
+    if(amt===null)return;
+    const n=parseFloat(amt);
+    if(isNaN(n)||n<0){toast('Enter a valid amount',true);return}
+    const ovr=n>bal?confirm(`Amount $${n.toFixed(2)} exceeds balance $${bal.toFixed(2)}. Continue?`):true;
+    if(!ovr)return;
+    try{await api(`/admin/dues-payments/${pid}/review`,'POST',{approved:true,amountReceived:n});toast('Payment approved');await loadDuesPayments()}catch(e){toast(e.message,true)}
+  }else{
+    const msg=prompt('Rejection reason:','Receipt not accepted');
+    if(msg===null)return;
+    try{await api(`/admin/dues-payments/${pid}/review`,'POST',{approved:false,rejectMessage:msg});toast('Payment rejected');await loadDuesPayments()}catch(e){toast(e.message,true)}
+  }
+}
+
+function viewDuesReceipt(pid){
+  const p=duesPayments.find(x=>x.id===pid);if(!p||!p.receipts||!p.receipts[0])return;
+  const ov=document.createElement('div');ov.className='modal-overlay';
+  ov.innerHTML=`<div class="modal-box" style="max-width:600px;text-align:center"><h3>Dues Payment Receipt</h3>
+    <p style="margin-bottom:.75rem;color:var(--muted)">${esc(p.fullName||'')} — ${esc(p.dueLabel||'Bill')} — Balance $${(p.balance||0).toFixed(2)}</p>
+    <img src="${p.receipts[0].image}" style="max-width:100%;max-height:500px;border-radius:8px;border:1px solid var(--border)"/>
+    <div style="display:flex;gap:1rem;justify-content:center;margin-top:1.5rem">
+      <button class="btn btn-s" onclick="reviewDuesPayment('${p.id}',true)">Approve</button>
+      <button class="btn btn-d" onclick="reviewDuesPayment('${p.id}',false)">Reject</button>
+      <button class="btn btn-o" onclick="this.closest('.modal-overlay').remove()">Close</button>
+    </div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  document.body.appendChild(ov);
+}
+
+function renderManageDues(){
+  const el=document.getElementById('duesContent');
+  el.innerHTML=`
+  <div style="display:flex;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap">
+    <select id="duesUserSel" class="fi" style="max-width:320px" onchange="loadUserDues(this.value)">
+      <option value="">Select a user to manage bills...</option>
+      ${allUsers.map(u=>`<option value="${u.id}" ${duesSelectedUser===u.id?'selected':''}>${esc(u.fullName)} — ${esc(u.applicationNumber||u.email)}</option>`).join('')}
+    </select>
+    <button class="btn btn-p" onclick="openAddBillModal()" ${duesSelectedUser?'':'disabled'}>+ Add Bill</button>
+    <button class="btn btn-o" onclick="openPushAlertModal()" ${duesSelectedUser?'':'disabled'}>Push Alert</button>
+  </div>
+  <div id="userDuesPanel">${duesSelectedUser?'':'<p style="color:var(--muted);font-size:.88rem">Select a user above to view and manage their bills.</p>'}</div>`;
+  if(duesSelectedUser)loadUserDues(duesSelectedUser);
+}
+
+async function loadUserDues(uid){
+  duesSelectedUser=uid;
+  const sel=document.getElementById('duesUserSel');if(sel)sel.value=uid;
+  const addBtn=document.querySelector('#duesContent .btn-p');if(addBtn)addBtn.disabled=!uid;
+  const alertBtn=document.querySelector('#duesContent .btn-o');if(alertBtn&&alertBtn.textContent.includes('Alert'))alertBtn.disabled=!uid;
+  if(!uid){document.getElementById('userDuesPanel').innerHTML='<p style="color:var(--muted);font-size:.88rem">Select a user above to view and manage their bills.</p>';return}
+  const el=document.getElementById('userDuesPanel');
+  el.innerHTML=`<p style="color:var(--muted);font-size:.85rem">Loading bills...</p>`;
+  try{
+    const d=await api(`/admin/dues/${uid}`);
+    duesData=d.dues||[];
+    const u=allUsers.find(x=>x.id===uid);
+    el.innerHTML=`
+    <div class="card">
+      <div class="card-hdr"><h3>${esc(u?.fullName||'User')} — Bills</h3>
+        <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+          <span style="font-size:.85rem;color:var(--muted)">Total: <strong>$${d.total.toFixed(2)}</strong> &nbsp;|&nbsp; Paid: <strong style="color:var(--success)">$${d.paid.toFixed(2)}</strong> &nbsp;|&nbsp; Balance: <strong style="color:${d.balance>0?'var(--danger)':'var(--success)'}">$${d.balance.toFixed(2)}</strong></span>
+        </div>
+      </div>
+      <div class="card-body">
+        ${duesData.length===0?'<p style="color:var(--muted);font-size:.88rem">No bills yet. Use + Add Bill to create one.</p>':''}
+        ${duesData.map(b=>`
+        <div style="border:1px solid ${b.status==='paid'?'#a7f3d0':b.status==='partial'?'#fde68a':'#fecaca'};border-radius:10px;padding:1rem 1.25rem;margin-bottom:.75rem;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem">
+          <div style="flex:1;min-width:200px">
+            <p style="font-weight:600;color:#1a1a1a;margin-bottom:.2rem">${esc(b.label)}</p>
+            <p style="font-size:.78rem;color:#6b7280">${esc(BILL_TYPE_LABELS[b.type]||b.type)} &bull; Added ${new Date(b.createdAt).toLocaleDateString()}</p>
+            <div style="display:flex;gap:.9rem;margin-top:.35rem;font-size:.82rem">
+              <span>Billed: <strong>$${b.amount.toFixed(2)}</strong></span>
+              <span style="color:#16a34a">Paid: <strong>$${(b.amountPaid||0).toFixed(2)}</strong></span>
+              ${(b.amount-(b.amountPaid||0))>0?`<span style="color:#dc2626">Owed: <strong>$${(b.amount-(b.amountPaid||0)).toFixed(2)}</strong></span>`:''}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+            <span class="badge ${b.status==='paid'?'badge-ok':b.status==='partial'?'badge-p':'badge-r'}">${b.status==='paid'?'Paid':b.status==='partial'?'Partial':'Unpaid'}</span>
+            <button class="btn btn-o btn-sm" onclick="openAdjustBillModal('${b.id}','${esc(b.label)}',${b.amount})">Adjust</button>
+            <button class="btn btn-d btn-sm" onclick="deleteBill('${uid}','${b.id}')">Delete</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }catch(e){el.innerHTML=`<p style="color:red">${esc(e.message)}</p>`}
+}
+
+function openAddBillModal(){
+  if(!duesSelectedUser)return;
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='addBillModal';
+  ov.innerHTML=`<div class="modal-box" style="max-width:520px"><h3>Add Bill</h3>
+    <div class="fg"><label>Bill Type</label><select class="fi" id="billType" onchange="updateBillLabel()">
+      <option value="application_fee_balance">Application Fee Balance</option>
+      <option value="account_maintenance">Account Maintenance</option>
+      <option value="substitute_clearance">Substitute Clearance</option>
+      <option value="processing_fee">Processing Fee</option>
+      <option value="documentation_fee">Documentation Fee</option>
+      <option value="custom">Custom</option>
+    </select></div>
+    <div class="fg"><label>Bill Label</label><input type="text" class="fi" id="billLabel" value="Application Fee Balance" placeholder="Descriptive label shown to user"/></div>
+    <div class="fg"><label>Amount ($)</label><input type="number" class="fi" id="billAmount" placeholder="0.00" min="0.01" step="0.01"/></div>
+    <div id="billErr" class="err"></div>
+    <div style="display:flex;gap:1rem;justify-content:flex-end;margin-top:1.5rem">
+      <button class="btn btn-o" onclick="document.getElementById('addBillModal').remove()">Cancel</button>
+      <button class="btn btn-p" style="width:auto" onclick="submitAddBill()">Add Bill</button>
+    </div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  document.body.appendChild(ov);
+}
+
+function updateBillLabel(){
+  const t=document.getElementById('billType')?.value;
+  const l=document.getElementById('billLabel');
+  if(l&&t!=='custom')l.value=BILL_TYPE_LABELS[t]||t;
+}
+
+async function submitAddBill(){
+  const type=document.getElementById('billType')?.value;
+  const label=document.getElementById('billLabel')?.value;
+  const amount=parseFloat(document.getElementById('billAmount')?.value);
+  const err=document.getElementById('billErr');
+  if(!type||!label||!label.trim()){err.textContent='Enter a label';return}
+  if(!amount||amount<=0){err.textContent='Enter a positive amount';return}
+  try{
+    await api(`/admin/dues/${duesSelectedUser}/add`,'POST',{type,label:label.trim(),amount});
+    toast('Bill added');
+    document.getElementById('addBillModal').remove();
+    loadUserDues(duesSelectedUser);
+  }catch(e){err.textContent=e.message}
+}
+
+function openAdjustBillModal(id,label,currentAmount){
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='adjModal';
+  ov.innerHTML=`<div class="modal-box" style="max-width:440px"><h3>Adjust Bill Amount</h3>
+    <p style="margin-bottom:1rem;color:var(--muted)">${esc(label)}</p>
+    <div class="fg"><label>New Amount ($)</label><input type="number" class="fi" id="adjAmt" value="${currentAmount}" min="0" step="0.01"/></div>
+    <div id="adjErr" class="err"></div>
+    <div style="display:flex;gap:1rem;justify-content:flex-end;margin-top:1.5rem">
+      <button class="btn btn-o" onclick="document.getElementById('adjModal').remove()">Cancel</button>
+      <button class="btn btn-p" style="width:auto" onclick="submitAdjustBill('${id}')">Save</button>
+    </div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  document.body.appendChild(ov);
+}
+
+async function submitAdjustBill(id){
+  const amount=parseFloat(document.getElementById('adjAmt')?.value);
+  const err=document.getElementById('adjErr');
+  if(isNaN(amount)||amount<0){err.textContent='Enter a valid amount';return}
+  try{
+    await api(`/admin/dues/${duesSelectedUser}/adjust/${id}`,'POST',{amount});
+    toast('Bill updated');
+    document.getElementById('adjModal').remove();
+    loadUserDues(duesSelectedUser);
+  }catch(e){err.textContent=e.message}
+}
+
+async function deleteBill(uid,id){
+  if(!confirm('Delete this bill? This cannot be undone.'))return;
+  try{await api(`/admin/dues/${uid}/${id}`,'DELETE');toast('Bill deleted');loadUserDues(uid)}catch(e){toast(e.message,true)}
+}
+
+function openPushAlertModal(){
+  if(!duesSelectedUser)return;
+  const u=allUsers.find(x=>x.id===duesSelectedUser);
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='alertModal';
+  ov.innerHTML=`<div class="modal-box" style="max-width:500px"><h3>Push Dues Alert</h3>
+    <p style="margin-bottom:1rem;color:var(--muted)">Send a custom alert message to <strong>${esc(u?.fullName||'this user')}</strong>. They will see it on their dashboard with a "Pay Dues Now" button.</p>
+    <div class="fg"><label>Alert Message</label><textarea class="fi" id="alertMsg" rows="4" placeholder="e.g. You have an outstanding balance. Please settle your dues to continue your application."></textarea></div>
+    <div id="alertErr" class="err"></div>
+    <div style="display:flex;gap:1rem;justify-content:flex-end;margin-top:1.5rem">
+      <button class="btn btn-o" onclick="document.getElementById('alertModal').remove()">Cancel</button>
+      <button class="btn btn-p" style="width:auto" onclick="submitPushAlert()">Push Alert</button>
+    </div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove()};
+  document.body.appendChild(ov);
+}
+
+async function submitPushAlert(){
+  const msg=document.getElementById('alertMsg')?.value;
+  const err=document.getElementById('alertErr');
+  if(!msg||!msg.trim()){err.textContent='Enter an alert message';return}
+  try{
+    await api(`/admin/dues/${duesSelectedUser}/push-alert`,'POST',{alertMessage:msg.trim()});
+    toast('Alert pushed to user dashboard');
+    document.getElementById('alertModal').remove();
+  }catch(e){err.textContent=e.message}
+}
+
+// ─── ACCOUNT MAINTENANCE SCAN ──────────────────────────────────────────────
+let maintScanData=null;
+
+async function renderMaintenanceScan(){
+  const el=document.getElementById('duesContent');
+  el.innerHTML=`<div class="card"><div class="card-hdr"><h3>Account Maintenance Fee — $100/week</h3></div><div class="card-body">
+    <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem">
+      <p style="font-weight:600;color:#92400e;margin-bottom:.35rem">How this works</p>
+      <p style="color:#78350f;font-size:.88rem;line-height:1.6">Every applicant gets <strong>1 free week</strong> after their application fee is approved to complete the process. After that, a <strong>$100/week account maintenance fee</strong> is charged for every week they have not finalised their application. Previously billed weeks are never double-charged. The scan below shows who owes what right now.</p>
+    </div>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem">
+      <button class="btn btn-o" onclick="runMaintenanceScan()">Scan Accounts</button>
+      <button class="btn btn-p" id="chargeAllBtn" style="display:none" onclick="chargeAll()">Charge All &amp; Add to Bills</button>
+      <button class="btn btn-o" id="chargeSelectedBtn" style="display:none;background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="chargeSelected()">Charge Selected Only</button>
+    </div>
+    <div id="maintResult"></div>
+  </div></div>`;
+}
+
+async function runMaintenanceScan(){
+  const el=document.getElementById('maintResult');
+  el.innerHTML=`<p style="color:var(--muted);font-size:.85rem">Scanning accounts...</p>`;
+  try{
+    const d=await api('/admin/maintenance-scan');
+    maintScanData=d;
+    const s=d.summary;
+    el.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;margin-bottom:1.25rem">
+      <div class="sc w"><h4>Scanned</h4><div class="sv">${s.totalScanned}</div></div>
+      <div class="sc d"><h4>To Charge</h4><div class="sv">${s.chargeable}</div></div>
+      <div class="sc s"><h4>New Total</h4><div class="sv">$${s.totalNewAmount.toFixed(2)}</div></div>
+      <div class="sc"><h4>Already Billed</h4><div class="sv">${s.alreadyMaxed}</div></div>
+      <div class="sc"><h4>Not Eligible</h4><div class="sv">${s.notEligible}</div></div>
+    </div>
+    ${d.chargeable.length===0?`<div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:8px;padding:1rem 1.25rem"><p style="color:#065f46;font-weight:600">No new maintenance charges due right now.</p></div>`:
+    `<div class="card" style="margin-bottom:1rem"><div class="card-hdr"><h3>Accounts to Charge</h3><p style="font-size:.82rem;color:var(--muted)">Check boxes to select individual accounts, or use Charge All</p></div>
+    <div class="card-body"><div class="tw"><table><thead><tr><th><input type="checkbox" id="maintChkAll" onchange="toggleAllMaint(this.checked)" style="width:16px;height:16px"/></th><th>Applicant</th><th>Fee Approved</th><th>Weeks Elapsed</th><th>Free Weeks</th><th>Chargeable Weeks</th><th>Already Billed</th><th>New Weeks</th><th>New Charge</th></tr></thead><tbody>
+    ${d.chargeable.map(r=>`<tr>
+      <td><input type="checkbox" class="maintChk" data-id="${r.userId}" checked style="width:16px;height:16px"/></td>
+      <td><strong>${esc(r.fullName)}</strong><br/><span style="font-size:.75rem;color:var(--muted)">${esc(r.applicationNumber||r.email)}</span></td>
+      <td>${r.applicationFeeVerifiedAt?new Date(r.applicationFeeVerifiedAt).toLocaleDateString():'-'}</td>
+      <td>${r.weeksElapsed}</td>
+      <td>1</td>
+      <td>${r.chargeableWeeks}</td>
+      <td>${r.alreadyCharged}</td>
+      <td><strong>${r.newWeeks}</strong></td>
+      <td><strong style="color:var(--danger)">$${r.newAmount.toFixed(2)}</strong></td>
+    </tr>`).join('')}
+    </tbody></table></div></div></div>
+    <div style="display:flex;gap:.75rem;margin-top:1rem">
+      <button class="btn btn-p" onclick="chargeAll()">Charge All (${d.chargeable.length} accounts · $${s.totalNewAmount.toFixed(2)})</button>
+      <button class="btn btn-o" style="background:#7c3aed;color:#fff;border-color:#7c3aed" onclick="chargeSelected()">Charge Selected Only</button>
+    </div>`}
+    ${d.alreadyMaxed.length?`<div class="card" style="margin-top:1rem"><div class="card-hdr"><h3>Already Fully Billed</h3></div><div class="card-body"><div class="tw"><table><thead><tr><th>Applicant</th><th>Fee Approved</th><th>Chargeable Weeks</th><th>Already Billed Weeks</th></tr></thead><tbody>
+    ${d.alreadyMaxed.map(r=>`<tr><td>${esc(r.fullName)}<br/><span style="font-size:.75rem;color:var(--muted)">${esc(r.applicationNumber||'')}</span></td><td>${r.applicationFeeVerifiedAt?new Date(r.applicationFeeVerifiedAt).toLocaleDateString():'-'}</td><td>${r.chargeableWeeks}</td><td>${r.alreadyCharged}</td></tr>`).join('')}
+    </tbody></table></div></div></div>`:''}`;
+  }catch(e){el.innerHTML=`<p style="color:red">${esc(e.message)}</p>`}
+}
+
+function toggleAllMaint(checked){
+  document.querySelectorAll('.maintChk').forEach(c=>c.checked=checked);
+}
+
+async function chargeAll(){
+  if(!maintScanData||!maintScanData.chargeable.length){toast('Run the scan first',true);return}
+  const total=maintScanData.summary.totalNewAmount;
+  if(!confirm(`Charge account maintenance fees to ALL ${maintScanData.chargeable.length} accounts?\n\nTotal: $${total.toFixed(2)}\n\nThis will add bills to each account and activate their dues alert. This cannot be undone.`))return;
+  await doCharge(null);
+}
+
+async function chargeSelected(){
+  const checked=[...document.querySelectorAll('.maintChk:checked')].map(c=>c.dataset.id);
+  if(!checked.length){toast('Select at least one account',true);return}
+  const sel=maintScanData.chargeable.filter(r=>checked.includes(r.userId));
+  const total=sel.reduce((s,r)=>s+r.newAmount,0);
+  if(!confirm(`Charge maintenance fees to ${checked.length} selected account(s)?\n\nTotal: $${total.toFixed(2)}`))return;
+  await doCharge(checked);
+}
+
+async function doCharge(userIds){
+  try{
+    const d=await api('/admin/maintenance-charge','POST',{userIds:userIds||undefined});
+    toast(`Charged ${d.charged} account(s) · $${d.totalAmount.toFixed(2)} total`);
+    // Show result summary
+    const el=document.getElementById('maintResult');
+    el.innerHTML=`<div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:10px;padding:1.25rem">
+      <p style="font-weight:700;color:#065f46;margin-bottom:.75rem">Done — ${d.charged} account(s) charged · $${d.totalAmount.toFixed(2)}</p>
+      ${d.details.length?`<div class="tw"><table><thead><tr><th>Applicant</th><th>New Weeks</th><th>Charged</th><th>Start Date</th></tr></thead><tbody>
+      ${d.details.map(r=>`<tr><td><strong>${esc(r.fullName)}</strong><br/><span style="font-size:.75rem;color:var(--muted)">${esc(r.applicationNumber||'')}</span></td><td>${r.newWeeks}</td><td style="color:var(--danger);font-weight:700">$${r.newAmount.toFixed(2)}</td><td>${new Date(r.startDate).toLocaleDateString()}</td></tr>`).join('')}
+      </tbody></table></div>`:''}
+      <button class="btn btn-o" style="margin-top:1rem" onclick="runMaintenanceScan()">Scan Again</button>
+    </div>`;
+    maintScanData=null;
+    // Update sidebar badge
+    try{const dp=await api('/admin/dues-payments');duesPendingCount=(dp.payments||[]).filter(p=>p.status==='pending').length;const db=document.getElementById('duesb');if(db)db.textContent=duesPendingCount}catch{}
+  }catch(e){toast(e.message,true)}
 }
 
 tk?renderApp():renderLogin();
