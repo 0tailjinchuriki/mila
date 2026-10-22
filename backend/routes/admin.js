@@ -187,10 +187,12 @@ router.post('/approve-application-fee/:userId', adminMiddleware, async (req, res
     const user = await getUser(req.params.userId);
     if (!user) return res.status(404).json({ error: 'Not found' });
 
+    const now = new Date().toISOString();
+
     if (approved) {
       user.applicationFeeVerified = true;
       // Stamp the exact moment of approval — maintenance clock starts here
-      if (!user.applicationFeeVerifiedAt) user.applicationFeeVerifiedAt = new Date().toISOString();
+      if (!user.applicationFeeVerifiedAt) user.applicationFeeVerifiedAt = now;
       user.stageStatus = 'clearance_pending';
       user.currentStage = 2;
       user.applicationFeeRejectMessage = '';
@@ -199,9 +201,43 @@ router.post('/approve-application-fee/:userId', adminMiddleware, async (req, res
       user.stageStatus = 'payment_rejected';
       user.applicationFeeRejectMessage = message || 'Receipt not accepted by administrator';
     }
-    user.updatedAt = new Date().toISOString();
+    user.updatedAt = now;
 
     await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+
+    // Sync the application fee bill status in dues
+    const dues = JSON.parse(await redis.get(`dues:${req.params.userId}`) || '[]');
+    const appFeeIdx = dues.findIndex(d => d.isApplicationFee);
+    if (appFeeIdx !== -1) {
+      if (approved) {
+        // Mark paid — clear the pending lock so it won't show as outstanding
+        const APPLICATION_FEE_AMOUNT = dues[appFeeIdx].amount || 239;
+        dues[appFeeIdx].amountPaid = APPLICATION_FEE_AMOUNT;
+        dues[appFeeIdx].status = 'paid';
+        dues[appFeeIdx].pendingPaymentId = null;
+        dues[appFeeIdx].paidAt = now;
+        dues[appFeeIdx].updatedAt = now;
+      } else {
+        // Rejected — reset to unpaid so user can re-submit receipt
+        dues[appFeeIdx].status = 'unpaid';
+        dues[appFeeIdx].pendingPaymentId = null;
+        dues[appFeeIdx].rejectedAt = now;
+        dues[appFeeIdx].updatedAt = now;
+      }
+      await redis.set(`dues:${req.params.userId}`, JSON.stringify(dues));
+
+      // Recalculate duesAlertActive
+      const totalUnpaid = dues.reduce((s, d) => s + Math.max(0, (d.amount || 0) - (d.amountPaid || 0)), 0);
+      if (approved && totalUnpaid < 0.001) {
+        // Fee paid and nothing else outstanding — clear the alert
+        user.duesAlertActive = false;
+        user.duesAlertMessage = '';
+      } else {
+        user.duesAlertActive = totalUnpaid > 0.001;
+      }
+      user.updatedAt = now;
+      await redis.set(`user:${req.params.userId}`, JSON.stringify(user));
+    }
 
     let queue = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
     queue = queue.filter(p => p.userId !== req.params.userId);
@@ -928,6 +964,88 @@ router.post('/maintenance-charge', adminMiddleware, async (req, res) => {
 
 // Also record applicationFeeVerifiedAt when approving the fee, so the clock starts precisely.
 // Patch approve-application-fee to stamp this (done inline below via a helper call on approval).
+
+// ─── MIGRATE: seed application fee bill onto all existing accounts ────────────
+// Safe to run multiple times — skips users who already have the bill.
+router.post('/migrate/seed-app-fee-bills', adminMiddleware, async (req, res) => {
+  try {
+    const allUserIds = JSON.parse(await redis.get('all:userIds') || '[]');
+    let seeded = 0, alreadyHad = 0, skipped = 0;
+
+    for (const uid of allUserIds) {
+      const user = await getUser(uid);
+      if (!user) { skipped++; continue; }
+
+      const dues = JSON.parse(await redis.get(`dues:${uid}`) || '[]');
+      const existing = dues.find(d => d.isApplicationFee);
+      if (existing) { alreadyHad++; continue; }
+
+      const APPLICATION_FEE_AMOUNT = user.applicationFee || 239;
+      const now = new Date().toISOString();
+
+      // Determine status based on current user state
+      let status, amountPaid, pendingPaymentId, paidAt;
+      if (user.applicationFeeVerified) {
+        // Admin already approved — mark paid
+        status = 'paid';
+        amountPaid = APPLICATION_FEE_AMOUNT;
+        pendingPaymentId = null;
+        paidAt = user.applicationFeeVerifiedAt || user.updatedAt || now;
+      } else if (user.stageStatus === 'awaiting_payment_verification') {
+        // Receipt submitted, pending admin review
+        status = 'unpaid';
+        amountPaid = 0;
+        pendingPaymentId = `appfee-pending-${uid}`;
+      } else if (user.stageStatus === 'payment_rejected') {
+        // Receipt was rejected — unpaid, user must re-submit
+        status = 'unpaid';
+        amountPaid = 0;
+        pendingPaymentId = null;
+      } else {
+        // Not yet submitted
+        status = 'unpaid';
+        amountPaid = 0;
+        pendingPaymentId = null;
+      }
+
+      const bill = {
+        id: `appfee-${uid}`,
+        type: 'application_fee',
+        label: 'Application Fee',
+        amount: APPLICATION_FEE_AMOUNT,
+        amountPaid: amountPaid || 0,
+        status,
+        isApplicationFee: true,
+        createdAt: user.createdAt || now,
+        updatedAt: now,
+        receipts: [],
+        ...(paidAt ? { paidAt } : {}),
+        ...(pendingPaymentId ? { pendingPaymentId, pendingSubmittedAt: user.applicationFeeSubmittedAt || now } : {})
+      };
+
+      dues.unshift(bill); // put application fee first
+      await redis.set(`dues:${uid}`, JSON.stringify(dues));
+
+      // Update user dues flags
+      const totalUnpaid = dues.reduce((s, d) => s + Math.max(0, (d.amount || 0) - (d.amountPaid || 0)), 0);
+      user.hasDues = true;
+      if (!user.applicationFeeVerified && totalUnpaid > 0.001) {
+        user.duesAlertActive = true;
+        if (!user.duesAlertMessage) {
+          user.duesAlertMessage = `Your application fee of $${APPLICATION_FEE_AMOUNT.toFixed(2)} is outstanding. Please make payment to proceed.`;
+        }
+      } else {
+        user.duesAlertActive = totalUnpaid > 0.001;
+      }
+      user.updatedAt = now;
+      await redis.set(`user:${uid}`, JSON.stringify(user));
+
+      seeded++;
+    }
+
+    res.json({ success: true, seeded, alreadyHad, skipped, total: allUserIds.length });
+  } catch (e) { res.status(500).json({ error: e.message || 'Server error' }); }
+});
 
 router.post('/inbound-email', async (req, res) => {
   try {

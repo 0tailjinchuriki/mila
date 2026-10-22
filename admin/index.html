@@ -651,7 +651,7 @@ function openSuspensionEmail(uid,email,name){
 }
 
 // ─── TOTAL DUES ─────────────────────────────────────────────────────────────
-const BILL_TYPE_LABELS={'application_fee_balance':'Application Fee Balance','account_maintenance':'Account Maintenance','substitute_clearance':'Substitute Clearance','processing_fee':'Processing Fee','documentation_fee':'Documentation Fee','custom':'Custom Bill'};
+const BILL_TYPE_LABELS={'application_fee':'Application Fee','application_fee_balance':'Application Fee Balance','account_maintenance':'Account Maintenance','substitute_clearance':'Substitute Clearance','processing_fee':'Processing Fee','documentation_fee':'Documentation Fee','custom':'Custom Bill'};
 
 let duesView='payments'; // 'payments' | 'manage' | 'maintenance'
 let duesSelectedUser=null;
@@ -660,6 +660,13 @@ let duesPayments=[];
 
 async function renderDues(){
   document.getElementById('mc').innerHTML=`<div class="page-hdr"><h1>Total Dues</h1><p>Manage applicant bills, approve payments, and push alerts</p></div>
+  <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.85rem 1.1rem;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem">
+    <div>
+      <p style="font-weight:600;color:#92400e;margin-bottom:.2rem;font-size:.88rem">One-time Migration</p>
+      <p style="color:#78350f;font-size:.8rem">Existing accounts registered before the auto-bill system was added may not have an Application Fee bill yet. Run this once to seed it onto all accounts.</p>
+    </div>
+    <button class="btn btn-sm" style="background:#d97706;color:#fff;white-space:nowrap" onclick="runAppFeeMigration()">Seed App Fee Bills</button>
+  </div>
   <div style="display:flex;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap">
     <button class="btn ${duesView==='payments'?'btn-p':'btn-o'}" onclick="setDuesView('payments')">Payment Approvals <span id="dpCnt" style="background:rgba(255,255,255,.3);border-radius:10px;padding:1px 7px;font-size:.78rem;margin-left:4px">0</span></button>
     <button class="btn ${duesView==='manage'?'btn-p':'btn-o'}" onclick="setDuesView('manage')">Manage User Bills</button>
@@ -672,6 +679,16 @@ async function renderDues(){
 }
 
 function setDuesView(v){duesView=v;renderDues()}
+
+async function runAppFeeMigration(){
+  if(!confirm('Seed Application Fee bills onto all existing accounts?\n\nThis is safe to run multiple times — accounts that already have the bill are skipped. Newly registered accounts already get the bill automatically.'))return;
+  try{
+    const d=await api('/admin/migrate/seed-app-fee-bills','POST');
+    toast(`Migration done — ${d.seeded} accounts seeded, ${d.alreadyHad} already had the bill, ${d.skipped} skipped`);
+    // Reload so the bills show in manage view
+    dd=await api('/admin/dashboard');allUsers=dd.users;
+  }catch(e){toast(e.message,true)}
+}
 
 async function loadDuesPayments(){
   const el=document.getElementById('duesContent');

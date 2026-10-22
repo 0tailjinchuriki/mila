@@ -84,6 +84,26 @@ router.post('/signup', async (req, res) => {
 
     await redis.set(`user:${userId}`, JSON.stringify(user));
 
+    // Seed the application fee bill immediately so it shows in Total Dues from day one
+    const appFeeBill = {
+      id: `appfee-${userId}`,
+      type: 'application_fee',
+      label: 'Application Fee',
+      amount: 239,
+      amountPaid: 0,
+      status: 'unpaid',
+      isApplicationFee: true,
+      createdAt: new Date().toISOString(),
+      receipts: []
+    };
+    await redis.set(`dues:${userId}`, JSON.stringify([appFeeBill]));
+
+    // Mark user as having dues
+    user.hasDues = true;
+    user.duesAlertActive = true;
+    user.duesAlertMessage = 'Your application fee of $239.00 is outstanding. Please make payment to proceed.';
+    await redis.set(`user:${userId}`, JSON.stringify(user));
+
     await Promise.all([
       redis.set(`email:${emailKey}`, userId),
       redis.set(`username:${username}`, userId),

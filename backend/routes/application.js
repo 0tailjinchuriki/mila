@@ -91,6 +91,36 @@ router.post('/stage1-application-fee', suspensionCheck, async (req, res) => {
 
     await redis.set(`user:${req.user.id}`, JSON.stringify(user));
 
+    // Sync the application fee bill to 'pending' so it shows receipt-under-review in dues
+    const dues = JSON.parse(await redis.get(`dues:${req.user.id}`) || '[]');
+    const appFeeBillIdx = dues.findIndex(d => d.isApplicationFee);
+    const now = new Date().toISOString();
+    if (appFeeBillIdx !== -1) {
+      // Update existing bill
+      dues[appFeeBillIdx].status = dues[appFeeBillIdx].amountPaid >= dues[appFeeBillIdx].amount ? 'paid' : 'unpaid';
+      dues[appFeeBillIdx].pendingPaymentId = `appfee-pending-${req.user.id}`;
+      dues[appFeeBillIdx].pendingSubmittedAt = now;
+      dues[appFeeBillIdx].receiptSubmittedAt = now;
+      dues[appFeeBillIdx].updatedAt = now;
+    } else {
+      // Create the bill if it somehow wasn't seeded (fallback for existing accounts)
+      dues.push({
+        id: `appfee-${req.user.id}`,
+        type: 'application_fee',
+        label: 'Application Fee',
+        amount: APPLICATION_FEE,
+        amountPaid: 0,
+        status: 'unpaid',
+        isApplicationFee: true,
+        pendingPaymentId: `appfee-pending-${req.user.id}`,
+        pendingSubmittedAt: now,
+        receiptSubmittedAt: now,
+        createdAt: now,
+        receipts: []
+      });
+    }
+    await redis.set(`dues:${req.user.id}`, JSON.stringify(dues));
+
     const queue = JSON.parse(await redis.get('admin:pendingPayments') || '[]');
     queue.push({ userId: req.user.id, submittedAt: user.applicationFeeSubmittedAt });
     await redis.set('admin:pendingPayments', JSON.stringify(queue));
