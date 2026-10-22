@@ -446,46 +446,37 @@ export default function App() {
     setLoading(false);
   };
 
-  const renderDuesAlert = () => {
-    if (!dash || !dash.duesAlertActive || duesBal <= 0) return null;
-    const unpaidCount = dues.filter(d => d.status !== 'paid').length;
-    const alertMsg = dash.duesAlertMessage || '';
-    // Build the ticker text: repeat so the scroll never gaps
-    const tickerText = [
-      `OUTSTANDING BALANCE: $${duesBal.toFixed(2)}`,
-      unpaidCount > 0 ? `${unpaidCount} UNPAID BILL${unpaidCount > 1 ? 'S' : ''}` : '',
-      alertMsg ? alertMsg.toUpperCase() : '',
-      `TOTAL DUES: $${duesBal.toFixed(2)}`,
-    ].filter(Boolean).join('   \u2022   ');
-    const repeated = `${tickerText}     \u00A0\u00A0\u00A0\u00A0     ${tickerText}`;
+  const renderDuesAlert = () => null; // inline alert removed — the fixed bottom bar handles this globally
 
+  const renderDuesBar = () => {
+    if (!dash || !dash.duesAlertActive || duesBal <= 0) return null;
     return (
-      <div style={{ background: 'linear-gradient(90deg, #4f46e5, #7c3aed, #6d28d9)', borderRadius: 10, marginBottom: '1.25rem', overflow: 'hidden', boxShadow: '0 3px 14px rgba(109,40,217,0.35)', display: 'flex', alignItems: 'stretch' }}>
-        {/* Scrolling ticker */}
-        <div style={{ flex: 1, overflow: 'hidden', padding: '0.85rem 0', position: 'relative' }}>
-          <style>{`
-            @keyframes tickerScroll {
-              0% { transform: translateX(0); }
-              100% { transform: translateX(-50%); }
-            }
-            .dues-ticker-inner {
-              display: inline-block;
-              white-space: nowrap;
-              animation: tickerScroll 22s linear infinite;
-              color: #fff;
-              font-size: 0.88rem;
-              font-weight: 600;
-              letter-spacing: 0.4px;
-            }
-          `}</style>
-          <div className="dues-ticker-inner">{repeated}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{repeated}</div>
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 999,
+        background: 'rgba(30,10,60,0.92)', backdropFilter: 'blur(8px)',
+        borderTop: '2px solid rgba(124,58,237,0.7)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: '1.25rem', padding: '0.7rem 1.25rem', flexWrap: 'wrap'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.8rem', fontWeight: 500, letterSpacing: '0.3px' }}>
+            Total Dues Outstanding
+          </span>
+          <span style={{ color: '#f9a8d4', fontSize: '1.55rem', fontWeight: 800, letterSpacing: '-0.5px', lineHeight: 1 }}>
+            ${duesBal.toFixed(2)}
+          </span>
         </div>
-        {/* Pay Now button */}
         <button
           onClick={() => setStep(300)}
-          style={{ flexShrink: 0, background: '#fff', color: '#4f46e5', border: 'none', borderRadius: '0 10px 10px 0', padding: '0 1.4rem', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap', borderLeft: '2px solid rgba(255,255,255,0.25)' }}
+          style={{
+            background: '#7c3aed', color: '#fff', border: 'none',
+            borderRadius: 7, padding: '0.45rem 1.2rem',
+            fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer',
+            whiteSpace: 'nowrap', letterSpacing: '0.3px',
+            boxShadow: '0 2px 10px rgba(124,58,237,0.5)'
+          }}
         >
-          Pay Now &rsaquo;
+          Pay Now
         </button>
       </div>
     );
@@ -494,7 +485,8 @@ export default function App() {
   const renderPayDues = () => {
     const bank = paymentConfig?.bankTransfer || {};
     const crypto = paymentConfig?.crypto || {};
-    const availableAssets = (crypto.assets || []).filter(a => a.available);
+    // The payment-config API already strips unavailable assets — use the list as-is
+    const availableAssets = crypto.assets || [];
     const activeDuesNetwork = availableAssets.find(a => a.network === duesPayForm.cryptoNetwork)
       ? duesPayForm.cryptoNetwork : (availableAssets[0]?.network || '');
     const selectedAsset = availableAssets.find(a => a.network === activeDuesNetwork) || null;
@@ -750,8 +742,8 @@ export default function App() {
   const renderPaymentStage = () => {
     const bank = paymentConfig?.bankTransfer || {};
     const crypto = paymentConfig?.crypto || {};
-    const allAssets = crypto.assets || [];
-    const availableAssets = allAssets.filter(a => a.available);
+    // The payment-config API already strips unavailable assets — use the list as-is
+    const availableAssets = crypto.assets || [];
 
     // Default to first available network if current selection isn't available
     const activeNetwork = availableAssets.find(a => a.network === appFee.cryptoNetwork)
@@ -974,7 +966,8 @@ export default function App() {
       <div className="background-wrapper"></div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <Navbar step={step} setStep={setStep} user={user} onLogout={doLogout} />
-      <main className="app-container">
+      {renderDuesBar()}
+      <main className="app-container" style={dash?.duesAlertActive && duesBal > 0 ? { paddingBottom: '3.5rem' } : undefined}>
         {step === 0 && (
           <div className="home-container animate-fade-in">
             <div className="hero-content">
