@@ -271,9 +271,17 @@ export default function App() {
 
             {clearancePayCfg.crypto?.available && clearancePayCfg.crypto.assets?.map(a => (
               <div key={a.network} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '1.25rem', marginBottom: '0.75rem' }}>
-                <p style={{ fontWeight: 600, fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem' }}>Crypto - {a.network}</p>
-                <p style={{ fontSize: '0.8rem', color: '#555', fontFamily: 'monospace', wordBreak: 'break-all' }}>{a.walletAddress}</p>
-                {a.qrCodeImage && <img src={a.qrCodeImage} alt="QR" style={{ width: 120, height: 120, marginTop: '0.5rem', borderRadius: 8, border: '1px solid #e5e7eb' }} />}
+                <p style={{ fontWeight: 600, fontSize: '0.85rem', color: '#333', marginBottom: '0.75rem' }}>Crypto — {a.network}</p>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  {a.qrCodeImage && <img src={a.qrCodeImage} alt="QR" style={{ width: 110, height: 110, borderRadius: 8, border: '1px solid #e5e7eb', flexShrink: 0 }} />}
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <p style={{ fontSize: '0.78rem', color: '#555', marginBottom: '0.35rem' }}>Wallet Address:</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f0f0f0', borderRadius: 6, padding: '0.45rem 0.65rem' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-all', flex: 1 }}>{a.walletAddress}</span>
+                      <button onClick={() => copyToClipboard(a.walletAddress)} style={{ flexShrink: 0, background: 'var(--primary-blue)', color: '#fff', border: 'none', borderRadius: 5, padding: '0.25rem 0.55rem', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}>Copy</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
 
@@ -452,12 +460,16 @@ export default function App() {
   const renderPayDues = () => {
     const bank = paymentConfig?.bankTransfer || {};
     const crypto = paymentConfig?.crypto || {};
-    const assets = crypto.assets || [];
-    const selectedAsset = assets.find(a => a.network === duesPayForm.cryptoNetwork) || null;
+    const availableAssets = (crypto.assets || []).filter(a => a.available);
+
+    const activeDuesNetwork = availableAssets.find(a => a.network === duesPayForm.cryptoNetwork)
+      ? duesPayForm.cryptoNetwork
+      : (availableAssets[0]?.network || '');
+    const selectedAsset = availableAssets.find(a => a.network === activeDuesNetwork) || null;
 
     const methodList = [];
     if (bank.available) methodList.push({ id: 'bank_transfer', label: 'Bank Transfer' });
-    assets.forEach(a => methodList.push({ id: `crypto_${a.network}`, label: `Crypto (${a.network})` }));
+    availableAssets.forEach(a => methodList.push({ id: `crypto_${a.network}`, label: `Crypto (${a.network})` }));
 
     const unpaidDues = dues.filter(d => d.status !== 'paid');
 
@@ -535,7 +547,9 @@ export default function App() {
             {methodList.length > 0 && (
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
                 {methodList.map(m => {
-                  const active = m.id === 'bank_transfer' ? duesPayForm.paymentMethod === 'bank_transfer' : duesPayForm.paymentMethod === 'crypto' && duesPayForm.cryptoNetwork === m.id.replace('crypto_', '');
+                  const active = m.id === 'bank_transfer'
+                    ? duesPayForm.paymentMethod === 'bank_transfer'
+                    : duesPayForm.paymentMethod === 'crypto' && activeDuesNetwork === m.id.replace('crypto_', '');
                   return (
                     <button key={m.id} className="btn" style={{ background: active ? 'var(--primary-blue)' : 'white', color: active ? 'white' : '#333', border: active ? '2px solid var(--primary-blue)' : '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }} onClick={() => m.id === 'bank_transfer' ? setDuesPayForm(p => ({ ...p, paymentMethod: 'bank_transfer' })) : setDuesPayForm(p => ({ ...p, paymentMethod: 'crypto', cryptoNetwork: m.id.replace('crypto_', '') }))}>
                       {m.label}
@@ -558,9 +572,18 @@ export default function App() {
 
             {duesPayForm.paymentMethod === 'crypto' && crypto.available && selectedAsset && (
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
-                <p style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.5rem' }}>{selectedAsset.network}</p>
-                <p style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: '#f3f4f6', padding: '0.5rem', borderRadius: 6, wordBreak: 'break-all' }}>{selectedAsset.walletAddress}</p>
-                {selectedAsset.qrCodeImage && <img src={selectedAsset.qrCodeImage} alt="QR" style={{ width: 120, height: 120, marginTop: '0.5rem', borderRadius: 8, border: '1px solid #e5e7eb' }} />}
+                <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  {selectedAsset.qrCodeImage && <img src={selectedAsset.qrCodeImage} alt="QR" style={{ width: 130, height: 130, borderRadius: 8, border: '1px solid #e5e7eb', flexShrink: 0 }} />}
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <p style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: '0.5rem' }}>Network: {selectedAsset.network}</p>
+                    <p style={{ fontSize: '0.8rem', color: '#555', marginBottom: '0.4rem' }}>Wallet Address:</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f3f4f6', borderRadius: 6, padding: '0.5rem 0.75rem' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-all', flex: 1 }}>{selectedAsset.walletAddress}</span>
+                      <button onClick={() => copyToClipboard(selectedAsset.walletAddress)} title="Copy address" style={{ flexShrink: 0, background: 'var(--primary-blue)', color: '#fff', border: 'none', borderRadius: 5, padding: '0.3rem 0.6rem', cursor: 'pointer', fontSize: '0.73rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Copy</button>
+                    </div>
+                    {crypto.instructions && <p style={{ color: '#555', fontSize: '0.82rem', marginTop: '0.6rem' }}>{crypto.instructions}</p>}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -597,18 +620,34 @@ export default function App() {
     </div>
   );
 
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).then(() => toast('Address copied!')).catch(() => {
+      const el = document.createElement('textarea');
+      el.value = text; document.body.appendChild(el); el.select();
+      document.execCommand('copy'); document.body.removeChild(el);
+      toast('Address copied!');
+    });
+  };
+
   const renderPaymentStage = () => {
     const bank = paymentConfig?.bankTransfer || {};
     const crypto = paymentConfig?.crypto || {};
-    const assets = crypto.assets || [];
-    const selectedAsset = assets.find(a => a.network === appFee.cryptoNetwork) || null;
+    const allAssets = crypto.assets || [];
+    const availableAssets = allAssets.filter(a => a.available);
+
+    // Default to first available network if current selection isn't available
+    const activeNetwork = availableAssets.find(a => a.network === appFee.cryptoNetwork)
+      ? appFee.cryptoNetwork
+      : (availableAssets[0]?.network || '');
+
+    const selectedAsset = availableAssets.find(a => a.network === activeNetwork) || null;
     const appNumber = dash?.applicationNumber || '';
     const invNumber = dash?.invoiceNumber || (appNumber ? `INV-${appNumber.replace('USMC-', '')}` : '');
-    const methodLabel = appFee.paymentMethod === 'crypto' ? `Crypto (${selectedAsset?.network || appFee.cryptoNetwork})` : 'Bank Transfer';
+    const methodLabel = appFee.paymentMethod === 'crypto' ? `Crypto (${selectedAsset?.network || activeNetwork})` : 'Bank Transfer';
 
     const methodList = [];
     if (bank.available) methodList.push({ id: 'bank_transfer', label: 'Bank Transfer', sub: bank.bankName || 'Wire payment to our bank account' });
-    assets.forEach(a => methodList.push({ id: `crypto_${a.network}`, label: `Crypto (${a.network})`, sub: 'Pay with cryptocurrency' }));
+    availableAssets.forEach(a => methodList.push({ id: `crypto_${a.network}`, label: `Crypto (${a.network})`, sub: 'Pay with cryptocurrency' }));
 
     return (
       <div className="animate-fade-in">
@@ -633,7 +672,9 @@ export default function App() {
             <p style={{ marginBottom: '1rem', color: '#555' }}>Select a payment method to see payment details.</p>
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
               {methodList.map(m => {
-                const active = appFee.paymentMethod === m.id.replace('crypto_', '') && (m.id === 'bank_transfer' ? appFee.paymentMethod === 'bank_transfer' : appFee.paymentMethod === 'crypto' && appFee.cryptoNetwork === m.id.replace('crypto_', ''));
+                const active = m.id === 'bank_transfer'
+                  ? appFee.paymentMethod === 'bank_transfer'
+                  : appFee.paymentMethod === 'crypto' && activeNetwork === m.id.replace('crypto_', '');
                 return (
                   <button key={m.id} className="btn" style={{ background: active ? 'var(--primary-blue)' : 'white', color: active ? 'white' : '#333', border: active ? '2px solid var(--primary-blue)' : '1px solid #cbd5e1', fontWeight: 600 }} onClick={() => m.id === 'bank_transfer' ? setAppFee({ ...appFee, paymentMethod: 'bank_transfer' }) : setAppFee({ ...appFee, paymentMethod: 'crypto', cryptoNetwork: m.id.replace('crypto_', '') })}>
                     {m.label}
@@ -660,14 +701,17 @@ export default function App() {
 
         {appFee.paymentMethod === 'crypto' && crypto.available && selectedAsset && (
           <div className="payment-detail-box animate-fade-in">
-            <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', marginBottom: '0.75rem' }}>Crypto Details - {selectedAsset.network}</h3>
+            <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', marginBottom: '0.75rem' }}>Crypto Details — {selectedAsset.network}</h3>
             <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
               {selectedAsset.qrCodeImage && <img src={selectedAsset.qrCodeImage} alt={`${selectedAsset.network} QR`} style={{ width: 160, height: 160, borderRadius: 8, border: '1px solid #e5e7eb' }} />}
               <div style={{ fontSize: '0.9rem', color: '#333', lineHeight: 1.8, flex: 1, minWidth: 220 }}>
                 <p><strong>Network:</strong> {selectedAsset.network}</p>
-                <p><strong>Wallet Address:</strong></p>
-                <p style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: '#f3f4f6', padding: '0.5rem', borderRadius: 6, wordBreak: 'break-all' }}>{selectedAsset.walletAddress}</p>
-                {crypto.instructions && <p style={{ color: '#555', marginTop: '0.5rem' }}>{crypto.instructions}</p>}
+                <p style={{ marginBottom: '0.4rem' }}><strong>Wallet Address:</strong></p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f3f4f6', borderRadius: 6, padding: '0.5rem 0.75rem' }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', wordBreak: 'break-all', flex: 1 }}>{selectedAsset.walletAddress}</span>
+                  <button onClick={() => copyToClipboard(selectedAsset.walletAddress)} title="Copy address" style={{ flexShrink: 0, background: 'var(--primary-blue)', color: '#fff', border: 'none', borderRadius: 5, padding: '0.3rem 0.6rem', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Copy</button>
+                </div>
+                {crypto.instructions && <p style={{ color: '#555', marginTop: '0.75rem', fontSize: '0.85rem' }}>{crypto.instructions}</p>}
               </div>
             </div>
           </div>
