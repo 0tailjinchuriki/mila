@@ -123,7 +123,7 @@ export default function App() {
 
   const [dues, setDues] = useState([]);
   const [duesBal, setDuesBal] = useState(0);
-  const [selectedDue, setSelectedDue] = useState(null);
+  const [selectedDue, setSelectedDue] = useState(null); // null = none, 'total' = pay all, or a bill object
   const [duesPayForm, setDuesPayForm] = useState({ paymentMethod:'bank_transfer', cryptoNetwork:'BTC', receiptNumber:'', receiptImage:'' });
   const [duesPayProceed, setDuesPayProceed] = useState(false);
 
@@ -432,10 +432,13 @@ export default function App() {
     if (!selectedDue) { setError('No bill selected'); return; }
     setError(''); setLoading(true);
     try {
-      await api(`/application/dues/${selectedDue.id}/pay`, 'POST', duesPayForm, token);
+      if (selectedDue === 'total') {
+        await api('/application/dues/pay-total', 'POST', duesPayForm, token);
+      } else {
+        await api(`/application/dues/${selectedDue.id}/pay`, 'POST', duesPayForm, token);
+      }
       toast('Payment receipt submitted! Awaiting admin review.');
       await loadDash();
-      setStep(100);
       setSelectedDue(null);
       setDuesPayForm({ paymentMethod:'bank_transfer', cryptoNetwork:'BTC', receiptNumber:'', receiptImage:'' });
       setDuesPayProceed(false);
@@ -445,14 +448,45 @@ export default function App() {
 
   const renderDuesAlert = () => {
     if (!dash || !dash.duesAlertActive || duesBal <= 0) return null;
+    const unpaidCount = dues.filter(d => d.status !== 'paid').length;
+    const alertMsg = dash.duesAlertMessage || '';
+    // Build the ticker text: repeat so the scroll never gaps
+    const tickerText = [
+      `OUTSTANDING BALANCE: $${duesBal.toFixed(2)}`,
+      unpaidCount > 0 ? `${unpaidCount} UNPAID BILL${unpaidCount > 1 ? 'S' : ''}` : '',
+      alertMsg ? alertMsg.toUpperCase() : '',
+      `TOTAL DUES: $${duesBal.toFixed(2)}`,
+    ].filter(Boolean).join('   \u2022   ');
+    const repeated = `${tickerText}     \u00A0\u00A0\u00A0\u00A0     ${tickerText}`;
+
     return (
-      <div style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', borderRadius: 12, padding: '1.25rem 1.5rem', marginBottom: '1.5rem', color: '#fff', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', boxShadow: '0 4px 18px rgba(124,58,237,0.3)' }}>
-        <div>
-          <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.25rem' }}>Outstanding Balance: ${duesBal.toFixed(2)}</p>
-          {dash.duesAlertMessage && <p style={{ fontSize: '0.85rem', opacity: 0.9 }}>{dash.duesAlertMessage}</p>}
-          <p style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: '0.2rem' }}>{dues.filter(d => d.status !== 'paid').length} unpaid bill(s)</p>
+      <div style={{ background: 'linear-gradient(90deg, #4f46e5, #7c3aed, #6d28d9)', borderRadius: 10, marginBottom: '1.25rem', overflow: 'hidden', boxShadow: '0 3px 14px rgba(109,40,217,0.35)', display: 'flex', alignItems: 'stretch' }}>
+        {/* Scrolling ticker */}
+        <div style={{ flex: 1, overflow: 'hidden', padding: '0.85rem 0', position: 'relative' }}>
+          <style>{`
+            @keyframes tickerScroll {
+              0% { transform: translateX(0); }
+              100% { transform: translateX(-50%); }
+            }
+            .dues-ticker-inner {
+              display: inline-block;
+              white-space: nowrap;
+              animation: tickerScroll 22s linear infinite;
+              color: #fff;
+              font-size: 0.88rem;
+              font-weight: 600;
+              letter-spacing: 0.4px;
+            }
+          `}</style>
+          <div className="dues-ticker-inner">{repeated}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{repeated}</div>
         </div>
-        <button onClick={() => setStep(300)} style={{ background: '#fff', color: '#4f46e5', border: 'none', borderRadius: 8, padding: '0.6rem 1.4rem', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>Pay Dues Now</button>
+        {/* Pay Now button */}
+        <button
+          onClick={() => setStep(300)}
+          style={{ flexShrink: 0, background: '#fff', color: '#4f46e5', border: 'none', borderRadius: '0 10px 10px 0', padding: '0 1.4rem', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap', borderLeft: '2px solid rgba(255,255,255,0.25)' }}
+        >
+          Pay Now &rsaquo;
+        </button>
       </div>
     );
   };
@@ -461,66 +495,109 @@ export default function App() {
     const bank = paymentConfig?.bankTransfer || {};
     const crypto = paymentConfig?.crypto || {};
     const availableAssets = (crypto.assets || []).filter(a => a.available);
-
     const activeDuesNetwork = availableAssets.find(a => a.network === duesPayForm.cryptoNetwork)
-      ? duesPayForm.cryptoNetwork
-      : (availableAssets[0]?.network || '');
+      ? duesPayForm.cryptoNetwork : (availableAssets[0]?.network || '');
     const selectedAsset = availableAssets.find(a => a.network === activeDuesNetwork) || null;
-
     const methodList = [];
     if (bank.available) methodList.push({ id: 'bank_transfer', label: 'Bank Transfer' });
     availableAssets.forEach(a => methodList.push({ id: `crypto_${a.network}`, label: `Crypto (${a.network})` }));
 
     const unpaidDues = dues.filter(d => d.status !== 'paid');
+    const pendingDues = dues.filter(d => d.pendingPaymentId);
+    const payableNow = unpaidDues.filter(d => !d.pendingPaymentId);
+    const totalBilled = dues.reduce((s, d) => s + (d.amount || 0), 0);
+    const totalPaid = dues.reduce((s, d) => s + (d.amountPaid || 0), 0);
+
+    const payLabel = selectedDue === 'total'
+      ? `Total Outstanding — $${duesBal.toFixed(2)}`
+      : selectedDue ? `${selectedDue.label} — $${parseFloat((selectedDue.amount - (selectedDue.amountPaid || 0)).toFixed(2)).toFixed(2)}`
+      : '';
+
+    const resetPay = () => { setSelectedDue(null); setDuesPayForm({ paymentMethod:'bank_transfer', cryptoNetwork:'BTC', receiptNumber:'', receiptImage:'' }); setDuesPayProceed(false); setError(''); };
 
     return (
-      <div className="form-card animate-fade-in" style={{ maxWidth: 700, margin: '1rem auto' }}>
+      <div className="form-card animate-fade-in" style={{ maxWidth: 720, margin: '1rem auto' }}>
+
+        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-          <h2 className="section-title" style={{ margin: 0, border: 'none' }}>My Dues</h2>
-          <button onClick={() => setStep(100)} className="btn btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>Back</button>
+          <h2 className="section-title" style={{ margin: 0, border: 'none' }}>My Dues &amp; Payments</h2>
+          <button onClick={() => { setStep(100); resetPay(); }} className="btn btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>Back</button>
         </div>
 
         {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem' }}>{error}</div>}
 
-        {/* Summary row */}
+        {/* Summary cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
-          {[['Total Billed', `$${dues.reduce((s,d)=>s+d.amount,0).toFixed(2)}`, '#1e40af'],
-            ['Total Paid', `$${dues.reduce((s,d)=>s+(d.amountPaid||0),0).toFixed(2)}`, '#16a34a'],
-            ['Balance Due', `$${duesBal.toFixed(2)}`, duesBal > 0 ? '#dc2626' : '#16a34a']
-          ].map(([label, val, color]) => (
-            <div key={label} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '0.9rem 1rem', textAlign: 'center' }}>
-              <p style={{ fontSize: '0.72rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>{label}</p>
-              <p style={{ fontSize: '1.3rem', fontWeight: 700, color }}>{val}</p>
+          {[
+            ['Total Billed', `$${totalBilled.toFixed(2)}`, '#1e40af', '#dbeafe'],
+            ['Total Paid',   `$${totalPaid.toFixed(2)}`,  '#16a34a', '#d1fae5'],
+            ['Balance Due',  `$${duesBal.toFixed(2)}`,    duesBal > 0 ? '#dc2626' : '#16a34a', duesBal > 0 ? '#fee2e2' : '#d1fae5'],
+          ].map(([label, val, color, bg]) => (
+            <div key={label} style={{ background: bg, border: `1px solid ${color}33`, borderRadius: 10, padding: '0.9rem 1rem', textAlign: 'center' }}>
+              <p style={{ fontSize: '0.7rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>{label}</p>
+              <p style={{ fontSize: '1.25rem', fontWeight: 700, color }}>{val}</p>
             </div>
           ))}
         </div>
 
-        {/* Bills list */}
+        {/* Pay Total button — only when there are payable (non-pending) unpaid bills */}
+        {payableNow.length > 0 && !selectedDue && (
+          <div style={{ background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <div>
+              <p style={{ color: '#fff', fontWeight: 700, fontSize: '1rem', marginBottom: '0.2rem' }}>Pay Total Outstanding</p>
+              <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.85rem' }}>
+                {payableNow.length} bill{payableNow.length > 1 ? 's' : ''} — <strong style={{ color: '#fff' }}>${duesBal.toFixed(2)}</strong>
+              </p>
+            </div>
+            <button
+              onClick={() => { setSelectedDue('total'); setDuesPayForm({ paymentMethod: bank.available ? 'bank_transfer' : (availableAssets.length ? 'crypto' : 'bank_transfer'), cryptoNetwork: activeDuesNetwork, receiptNumber:'', receiptImage:'' }); setDuesPayProceed(false); setError(''); }}
+              style={{ background: '#fff', color: '#4f46e5', border: 'none', borderRadius: 7, padding: '0.55rem 1.4rem', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              Pay ${duesBal.toFixed(2)} Now
+            </button>
+          </div>
+        )}
+
+        {/* Bills breakdown */}
         {dues.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>No bills on your account.</div>
+          <div style={{ textAlign: 'center', padding: '2.5rem', color: '#888' }}>No bills on your account.</div>
         ) : (
-          <div style={{ marginBottom: '1.5rem' }}>
+          <div style={{ marginBottom: selectedDue ? '1.5rem' : 0 }}>
+            <p style={{ fontSize: '0.8rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.75rem', fontWeight: 600 }}>Bill Breakdown</p>
             {dues.map(d => {
               const balance = parseFloat((d.amount - (d.amountPaid || 0)).toFixed(2));
               const isPending = !!d.pendingPaymentId;
+              const isSelected = selectedDue && selectedDue !== 'total' && selectedDue.id === d.id;
+              const borderColor = d.status === 'paid' ? '#a7f3d0' : isPending ? '#fde68a' : '#fecaca';
               return (
-                <div key={d.id} style={{ background: '#fff', border: `1px solid ${d.status === 'paid' ? '#a7f3d0' : d.status === 'partial' ? '#fde68a' : '#fecaca'}`, borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '0.75rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <p style={{ fontWeight: 600, color: '#1a1a1a', marginBottom: '0.2rem' }}>{d.label}</p>
-                    <p style={{ fontSize: '0.8rem', color: '#6b7280' }}>{d.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} &bull; Added {new Date(d.createdAt).toLocaleDateString()}</p>
-                    <div style={{ display: 'flex', gap: '1rem', marginTop: '0.35rem', fontSize: '0.82rem' }}>
-                      <span>Billed: <strong>${d.amount.toFixed(2)}</strong></span>
-                      <span style={{ color: '#16a34a' }}>Paid: <strong>${(d.amountPaid||0).toFixed(2)}</strong></span>
+                <div key={d.id} style={{ background: isSelected ? '#eff6ff' : '#fff', border: `1px solid ${isSelected ? 'var(--primary-blue)' : borderColor}`, borderRadius: 10, padding: '0.9rem 1.1rem', marginBottom: '0.6rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', transition: 'all 0.15s' }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <p style={{ fontWeight: 600, color: '#1a1a1a', marginBottom: '0.15rem', fontSize: '0.95rem' }}>{d.label}</p>
+                    <p style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.3rem' }}>
+                      {d.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} &bull; {new Date(d.createdAt).toLocaleDateString()}
+                    </p>
+                    <div style={{ display: 'flex', gap: '1.1rem', fontSize: '0.82rem', flexWrap: 'wrap' }}>
+                      <span style={{ color: '#1e40af' }}>Billed: <strong>${d.amount.toFixed(2)}</strong></span>
+                      {(d.amountPaid || 0) > 0 && <span style={{ color: '#16a34a' }}>Paid: <strong>${(d.amountPaid).toFixed(2)}</strong></span>}
                       {balance > 0 && <span style={{ color: '#dc2626' }}>Owed: <strong>${balance.toFixed(2)}</strong></span>}
                     </div>
-                    {isPending && <p style={{ fontSize: '0.78rem', color: '#d97706', marginTop: '0.3rem' }}>Receipt submitted — awaiting review</p>}
+                    {isPending && <p style={{ fontSize: '0.75rem', color: '#d97706', marginTop: '0.3rem', fontWeight: 600 }}>Receipt submitted — awaiting admin review</p>}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <span style={{ padding: '0.2rem 0.65rem', borderRadius: 50, fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', background: d.status === 'paid' ? '#d1fae5' : d.status === 'partial' ? '#fef3c7' : '#fee2e2', color: d.status === 'paid' ? '#065f46' : d.status === 'partial' ? '#92400e' : '#991b1b' }}>
-                      {d.status === 'paid' ? 'Paid' : d.status === 'partial' ? 'Partial' : 'Unpaid'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
+                    <span style={{ padding: '0.18rem 0.6rem', borderRadius: 50, fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
+                      background: d.status === 'paid' ? '#d1fae5' : isPending ? '#fef3c7' : d.status === 'partial' ? '#fef9c3' : '#fee2e2',
+                      color: d.status === 'paid' ? '#065f46' : isPending ? '#92400e' : d.status === 'partial' ? '#854d0e' : '#991b1b' }}>
+                      {d.status === 'paid' ? 'Paid' : isPending ? 'Pending' : d.status === 'partial' ? 'Partial' : 'Unpaid'}
                     </span>
-                    {d.status !== 'paid' && !isPending && (
-                      <button onClick={() => { setSelectedDue(d); setDuesPayForm({ paymentMethod:'bank_transfer', cryptoNetwork:'BTC', receiptNumber:'', receiptImage:'' }); setDuesPayProceed(false); setError(''); }} className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.82rem' }}>Pay</button>
+                    {d.status !== 'paid' && !isPending && !selectedDue && (
+                      <button
+                        onClick={() => { setSelectedDue(d); setDuesPayForm({ paymentMethod: bank.available ? 'bank_transfer' : (availableAssets.length ? 'crypto' : 'bank_transfer'), cryptoNetwork: activeDuesNetwork, receiptNumber:'', receiptImage:'' }); setDuesPayProceed(false); setError(''); }}
+                        className="btn btn-primary" style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}>
+                        Pay
+                      </button>
+                    )}
+                    {isSelected && (
+                      <button onClick={resetPay} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: '1.1rem', padding: '0 0.25rem' }}>&times;</button>
                     )}
                   </div>
                 </div>
@@ -529,57 +606,90 @@ export default function App() {
           </div>
         )}
 
-        {/* Inline payment form for selected due */}
+        {/* Payment form — shown when a due or total is selected */}
         {selectedDue && (
-          <div className="animate-fade-in" style={{ background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', fontSize: '1rem' }}>Pay: {selectedDue.label}</h3>
-              <button onClick={() => { setSelectedDue(null); setError(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: '#6b7280' }}>&times;</button>
+          <div className="animate-fade-in" style={{ background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '1.25rem', marginTop: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+              <div>
+                <h3 style={{ color: 'var(--primary-blue)', fontFamily: "'Oswald', sans-serif", textTransform: 'uppercase', fontSize: '1rem', marginBottom: '0.2rem' }}>
+                  {selectedDue === 'total' ? 'Pay Total Outstanding Balance' : `Pay: ${selectedDue.label}`}
+                </h3>
+                <p style={{ fontSize: '0.88rem', color: '#555' }}>
+                  Amount due: <strong style={{ color: '#dc2626', fontSize: '1rem' }}>${selectedDue === 'total' ? duesBal.toFixed(2) : parseFloat((selectedDue.amount - (selectedDue.amountPaid || 0)).toFixed(2)).toFixed(2)}</strong>
+                  {selectedDue === 'total' && payableNow.length > 0 && (
+                    <span style={{ fontSize: '0.78rem', color: '#6b7280', marginLeft: '0.5rem' }}>({payableNow.length} bill{payableNow.length > 1 ? 's' : ''})</span>
+                  )}
+                </p>
+              </div>
+              <button onClick={resetPay} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.3rem', color: '#6b7280', padding: '0 0.25rem' }}>&times;</button>
             </div>
-            <p style={{ fontSize: '0.88rem', color: '#555', marginBottom: '1rem' }}>Balance due: <strong style={{ color: '#dc2626' }}>${parseFloat((selectedDue.amount - (selectedDue.amountPaid || 0)).toFixed(2)).toFixed(2)}</strong></p>
+
+            {/* Paying total: show bill list being covered */}
+            {selectedDue === 'total' && payableNow.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Bills covered by this payment</p>
+                {payableNow.map(d => (
+                  <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '0.2rem 0', borderBottom: '1px solid #f3f4f6' }}>
+                    <span style={{ color: '#333' }}>{d.label}</span>
+                    <span style={{ color: '#dc2626', fontWeight: 600 }}>${parseFloat((d.amount - (d.amountPaid || 0)).toFixed(2)).toFixed(2)}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 700, marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '2px solid #e5e7eb' }}>
+                  <span>Total</span><span style={{ color: '#dc2626' }}>${duesBal.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
 
             {methodList.length === 0 && (
               <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
-                <p style={{ color: '#92400e', fontWeight: 600 }}>No payment methods configured. Contact support.</p>
+                <p style={{ color: '#92400e', fontWeight: 600 }}>No payment methods configured yet. Contact support.</p>
               </div>
             )}
 
+            {/* Method selector */}
             {methodList.length > 0 && (
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                {methodList.map(m => {
-                  const active = m.id === 'bank_transfer'
-                    ? duesPayForm.paymentMethod === 'bank_transfer'
-                    : duesPayForm.paymentMethod === 'crypto' && activeDuesNetwork === m.id.replace('crypto_', '');
-                  return (
-                    <button key={m.id} className="btn" style={{ background: active ? 'var(--primary-blue)' : 'white', color: active ? 'white' : '#333', border: active ? '2px solid var(--primary-blue)' : '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }} onClick={() => m.id === 'bank_transfer' ? setDuesPayForm(p => ({ ...p, paymentMethod: 'bank_transfer' })) : setDuesPayForm(p => ({ ...p, paymentMethod: 'crypto', cryptoNetwork: m.id.replace('crypto_', '') }))}>
-                      {m.label}
-                    </button>
-                  );
-                })}
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>Select Payment Method</p>
+                <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+                  {methodList.map(m => {
+                    const active = m.id === 'bank_transfer'
+                      ? duesPayForm.paymentMethod === 'bank_transfer'
+                      : duesPayForm.paymentMethod === 'crypto' && activeDuesNetwork === m.id.replace('crypto_', '');
+                    return (
+                      <button key={m.id} className="btn" style={{ background: active ? 'var(--primary-blue)' : 'white', color: active ? 'white' : '#333', border: active ? '2px solid var(--primary-blue)' : '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
+                        onClick={() => m.id === 'bank_transfer' ? setDuesPayForm(p => ({ ...p, paymentMethod: 'bank_transfer' })) : setDuesPayForm(p => ({ ...p, paymentMethod: 'crypto', cryptoNetwork: m.id.replace('crypto_', '') }))}>
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
+            {/* Bank transfer details */}
             {duesPayForm.paymentMethod === 'bank_transfer' && bank.available && (
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '1rem', marginBottom: '1rem', fontSize: '0.88rem', color: '#333', lineHeight: 1.8 }}>
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '1rem', marginBottom: '1rem', fontSize: '0.88rem', color: '#333', lineHeight: 1.85 }}>
+                <p style={{ fontWeight: 700, color: 'var(--primary-blue)', marginBottom: '0.5rem', textTransform: 'uppercase', fontSize: '0.8rem' }}>Bank Transfer Details</p>
                 <p><strong>Bank:</strong> {bank.bankName}</p>
                 <p><strong>Account Name:</strong> {bank.accountName}</p>
                 <p><strong>Account Number:</strong> {bank.accountNumber}</p>
                 {bank.routingNumber && <p><strong>Routing:</strong> {bank.routingNumber}</p>}
                 {bank.swiftCode && <p><strong>SWIFT:</strong> {bank.swiftCode}</p>}
-                {bank.instructions && <p style={{ color: '#555', marginTop: '0.5rem' }}>{bank.instructions}</p>}
+                {bank.instructions && <p style={{ color: '#555', marginTop: '0.5rem', fontSize: '0.84rem' }}>{bank.instructions}</p>}
               </div>
             )}
 
+            {/* Crypto details */}
             {duesPayForm.paymentMethod === 'crypto' && crypto.available && selectedAsset && (
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+                <p style={{ fontWeight: 700, color: 'var(--primary-blue)', marginBottom: '0.75rem', textTransform: 'uppercase', fontSize: '0.8rem' }}>Crypto — {selectedAsset.network}</p>
                 <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   {selectedAsset.qrCodeImage && <img src={selectedAsset.qrCodeImage} alt="QR" style={{ width: 130, height: 130, borderRadius: 8, border: '1px solid #e5e7eb', flexShrink: 0 }} />}
                   <div style={{ flex: 1, minWidth: 180 }}>
-                    <p style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: '0.5rem' }}>Network: {selectedAsset.network}</p>
                     <p style={{ fontSize: '0.8rem', color: '#555', marginBottom: '0.4rem' }}>Wallet Address:</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f3f4f6', borderRadius: 6, padding: '0.5rem 0.75rem' }}>
                       <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-all', flex: 1 }}>{selectedAsset.walletAddress}</span>
-                      <button onClick={() => copyToClipboard(selectedAsset.walletAddress)} title="Copy address" style={{ flexShrink: 0, background: 'var(--primary-blue)', color: '#fff', border: 'none', borderRadius: 5, padding: '0.3rem 0.6rem', cursor: 'pointer', fontSize: '0.73rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Copy</button>
+                      <button onClick={() => copyToClipboard(selectedAsset.walletAddress)} style={{ flexShrink: 0, background: 'var(--primary-blue)', color: '#fff', border: 'none', borderRadius: 5, padding: '0.3rem 0.6rem', cursor: 'pointer', fontSize: '0.73rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Copy</button>
                     </div>
                     {crypto.instructions && <p style={{ color: '#555', fontSize: '0.82rem', marginTop: '0.6rem' }}>{crypto.instructions}</p>}
                   </div>
@@ -587,22 +697,30 @@ export default function App() {
               </div>
             )}
 
-            {!duesPayProceed ? (
-              <button onClick={() => setDuesPayProceed(true)} className="btn btn-primary" style={{ marginTop: '0.5rem' }}>Proceed to Upload Receipt <ChevronRight size={16} /></button>
-            ) : (
-              <div className="animate-fade-in">
+            {/* Upload receipt */}
+            {methodList.length > 0 && !duesPayProceed && (
+              <button onClick={() => setDuesPayProceed(true)} className="btn btn-primary" style={{ marginTop: '0.5rem' }}>
+                Proceed to Upload Receipt <ChevronRight size={16} />
+              </button>
+            )}
+
+            {duesPayProceed && (
+              <div className="animate-fade-in" style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #bfdbfe' }}>
+                <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>Upload Payment Receipt</p>
                 <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                  <label className="form-label">Upload Receipt Image</label>
                   <input type="file" accept="image/*" className="form-input" onChange={handleDuesReceiptFile} style={{ padding: '0.5rem' }} />
                 </div>
                 {duesPayForm.receiptImage && <img src={duesPayForm.receiptImage} alt="Receipt preview" style={{ maxWidth: 260, maxHeight: 260, borderRadius: 8, border: '1px solid #e5e7eb', marginBottom: '0.75rem', display: 'block' }} />}
                 <div className="form-group" style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">Reference Number (optional)</label>
-                  <input type="text" className="form-input" placeholder="Transaction/reference number" value={duesPayForm.receiptNumber} onChange={e => setDuesPayForm(p => ({ ...p, receiptNumber: e.target.value }))} />
+                  <label className="form-label">Reference / Transaction Number (optional)</label>
+                  <input type="text" className="form-input" placeholder="Enter reference number" value={duesPayForm.receiptNumber} onChange={e => setDuesPayForm(p => ({ ...p, receiptNumber: e.target.value }))} />
                 </div>
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <button onClick={() => setDuesPayProceed(false)} className="btn btn-secondary">Back</button>
-                  <button onClick={submitDuesPayment} className="btn btn-primary" disabled={loading || !duesPayForm.receiptImage}>{loading ? 'Submitting...' : 'Submit Receipt'} <ChevronRight size={16} /></button>
+                  <button onClick={submitDuesPayment} className="btn btn-primary" disabled={loading || !duesPayForm.receiptImage}>
+                    {loading ? 'Submitting...' : `Submit Receipt for $${selectedDue === 'total' ? duesBal.toFixed(2) : parseFloat((selectedDue.amount - (selectedDue.amountPaid||0)).toFixed(2)).toFixed(2)}`}
+                    <ChevronRight size={16} />
+                  </button>
                 </div>
               </div>
             )}
