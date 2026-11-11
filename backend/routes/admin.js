@@ -619,6 +619,16 @@ router.post('/dues/:userId/adjust/:dueId', adminMiddleware, async (req, res) => 
     dues[idx].status = dues[idx].amountPaid >= dues[idx].amount ? 'paid' : (dues[idx].amountPaid > 0 ? 'partial' : 'unpaid');
     dues[idx].updatedAt = new Date().toISOString();
     await redis.set(`dues:${req.params.userId}`, JSON.stringify(dues));
+
+    // Keep the user's alert state in sync with the new balance
+    const adjUser = await getUser(req.params.userId);
+    if (adjUser) {
+      const totalUnpaid = dues.reduce((s, d) => s + Math.max(0, (d.amount || 0) - (d.amountPaid || 0)), 0);
+      adjUser.hasDues = dues.length > 0;
+      adjUser.duesAlertActive = totalUnpaid > 0.001;
+      adjUser.updatedAt = new Date().toISOString();
+      await redis.set(`user:${req.params.userId}`, JSON.stringify(adjUser));
+    }
     res.json({ success: true, dues });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });

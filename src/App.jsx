@@ -181,7 +181,14 @@ export default function App() {
     }
   }, [token]);
 
-  useEffect(() => { if (step === 100 && token) loadDash(); }, [step, token, loadDash]);
+  useEffect(() => { if ((step === 100 || step === 300) && token) loadDash(); }, [step, token, loadDash]);
+
+  // Keep dues in sync with admin changes while the user is signed in
+  useEffect(() => {
+    if (!token || (step !== 100 && step !== 300)) return;
+    const t = setInterval(loadDash, 15000);
+    return () => clearInterval(t);
+  }, [step, token, loadDash]);
 
   useEffect(() => {
     if (!dash) return;

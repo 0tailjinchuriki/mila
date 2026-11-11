@@ -248,7 +248,8 @@ router.get('/dashboard', async (req, res) => {
         suspendedAt: user.suspendedAt || '',
         // Dues
         hasDues: dues.length > 0,
-        duesAlertActive: !!user.duesAlertActive && duesBalance > 0.001,
+        // Any outstanding balance always shows on the user's side, regardless of the stored flag
+        duesAlertActive: duesBalance > 0.001,
         duesAlertMessage: user.duesAlertMessage || '',
         duesBalance,
         duesTotal,
